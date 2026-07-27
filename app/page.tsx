@@ -1,6 +1,14 @@
-import { supabase } from "@/lib/supabase";
+"use client";
+import { useState } from "react"; 
 
-export default async function Home() {
+export default function Home() {
+  const [email, setEmail] = useState("");
+const [password, setPassword] = useState("");
+
+const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  e.preventDefault();
+  console.log(email, password);
+}; 
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-white px-4">
@@ -16,7 +24,7 @@ export default async function Home() {
             </p>
           </header>
 
-          <form className="space-y-4">
+          <form className="space-y-4" onSubmit={handleSubmit}>
             <div>
               <label
                 htmlFor="usuario"
@@ -28,6 +36,8 @@ export default async function Home() {
                 id="usuario"
                 name="usuario"
                 type="text"
+                value={email}
+onChange={(e) => setEmail(e.target.value)}
                 autoComplete="username"
                 required
                 className="mt-1 block w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
@@ -45,6 +55,8 @@ export default async function Home() {
                 id="password"
                 name="password"
                 type="password"
+                value={password}
+onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
                 required
                 className="mt-1 block w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
