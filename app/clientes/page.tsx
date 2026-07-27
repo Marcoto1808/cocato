@@ -2,8 +2,24 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import type { PostgrestError } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import ClientesTable from "@/components/clientes/ClientesTable";
+
+function formatearErrorSupabase(error: PostgrestError | null): string {
+  if (!error) {
+    return "Sin respuesta de Supabase (insert sin data).";
+  }
+
+  return [
+    error.message,
+    error.details ? `Detalle: ${error.details}` : null,
+    error.hint ? `Hint: ${error.hint}` : null,
+    error.code ? `Código: ${error.code}` : null,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
 
 type Cliente = {
   id: string;
@@ -12,23 +28,43 @@ type Cliente = {
   whatsapp: string | null;
   telefono: string | null;
   direccion: string | null;
+  maps_url: string | null;
+  observaciones: string | null;
 };
 
 type FormularioCliente = {
   nombre_negocio: string;
   propietario: string;
-  whatsapp: string;
   telefono: string;
+  whatsapp: string;
   direccion: string;
+  maps_url: string;
+  observaciones: string;
 };
 
 const FORMULARIO_VACIO: FormularioCliente = {
   nombre_negocio: "",
   propietario: "",
-  whatsapp: "",
   telefono: "",
+  whatsapp: "",
   direccion: "",
+  maps_url: "",
+  observaciones: "",
 };
+
+// Deben coincidir con public.clientes en Supabase.
+const COLUMNAS_CLIENTE =
+  "id, nombre_negocio, propietario, telefono, whatsapp, direccion, maps_url, observaciones";
+
+const COLUMNAS_INSERT = [
+  "nombre_negocio",
+  "propietario",
+  "telefono",
+  "whatsapp",
+  "direccion",
+  "maps_url",
+  "observaciones",
+] as const;
 
 export default function ClientesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -36,6 +72,7 @@ export default function ClientesPage() {
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mensajeExito, setMensajeExito] = useState<string | null>(null);
   const [modalAbierto, setModalAbierto] = useState(false);
   const [formulario, setFormulario] =
     useState<FormularioCliente>(FORMULARIO_VACIO);
@@ -50,11 +87,15 @@ export default function ClientesPage() {
 
     const { data, error: queryError } = await supabase
       .from("clientes")
-      .select("id, nombre_negocio, propietario, whatsapp, telefono, direccion")
+      .select(COLUMNAS_CLIENTE)
       .order("nombre_negocio");
 
     if (queryError) {
-      setError("No se pudieron cargar los clientes.");
+      console.error("[clientes] select error:", queryError);
+      console.error("[clientes] select columnas:", COLUMNAS_CLIENTE);
+      setError(
+        `No se pudieron cargar los clientes. ${formatearErrorSupabase(queryError)}`
+      );
       setCargando(false);
       return;
     }
@@ -65,6 +106,7 @@ export default function ClientesPage() {
 
   function abrirModalNuevo() {
     setFormulario(FORMULARIO_VACIO);
+    setError(null);
     setModalAbierto(true);
   }
 
@@ -85,28 +127,66 @@ export default function ClientesPage() {
 
     setGuardando(true);
     setError(null);
+    setMensajeExito(null);
 
     const payload = {
       nombre_negocio,
       propietario: formulario.propietario.trim() || null,
-      whatsapp: formulario.whatsapp.trim() || null,
       telefono: formulario.telefono.trim() || null,
+      whatsapp: formulario.whatsapp.trim() || null,
       direccion: formulario.direccion.trim() || null,
+      maps_url: formulario.maps_url.trim() || null,
+      observaciones: formulario.observaciones.trim() || null,
     };
 
-    const { error: insertError } = await supabase
-      .from("clientes")
-      .insert(payload);
+    console.log("[clientes] insert payload:", payload);
+    console.log("[clientes] insert columnas enviadas:", COLUMNAS_INSERT);
 
-    if (insertError) {
-      setError("No se pudo guardar el cliente.");
+    let nuevoCliente: Cliente | null = null;
+    let insertError: PostgrestError | null = null;
+
+    try {
+      const resultado = await supabase
+        .from("clientes")
+        .insert(payload)
+        .select(COLUMNAS_CLIENTE)
+        .single();
+
+      nuevoCliente = (resultado.data as Cliente | null) ?? null;
+      insertError = resultado.error;
+    } catch (caught) {
+      console.error("[clientes] insert exception:", caught);
+      setError(
+        `No se pudo guardar el cliente. Excepción: ${
+          caught instanceof Error ? caught.message : String(caught)
+        }`
+      );
       setGuardando(false);
       return;
     }
 
+    if (insertError || !nuevoCliente) {
+      console.error("[clientes] insert error.code:", insertError?.code);
+      console.error("[clientes] insert error.message:", insertError?.message);
+      console.error("[clientes] insert error.details:", insertError?.details);
+      console.error("[clientes] insert error.hint:", insertError?.hint);
+      console.error("[clientes] insert data:", nuevoCliente);
+      setError(
+        `No se pudo guardar el cliente. ${formatearErrorSupabase(insertError)}`
+      );
+      setGuardando(false);
+      return;
+    }
+
+    setClientes((prev) =>
+      [...prev, nuevoCliente as Cliente].sort((a, b) =>
+        a.nombre_negocio.localeCompare(b.nombre_negocio, "es")
+      )
+    );
+
     cerrarModal();
     setGuardando(false);
-    await cargarClientes();
+    setMensajeExito(`Cliente "${nombre_negocio}" guardado correctamente.`);
   }
 
   const clientesFiltrados = useMemo(() => {
@@ -118,9 +198,10 @@ export default function ClientesPage() {
       const campos = [
         cliente.nombre_negocio,
         cliente.propietario,
-        cliente.whatsapp,
         cliente.telefono,
+        cliente.whatsapp,
         cliente.direccion,
+        cliente.observaciones,
       ];
 
       return campos.some((campo) =>
@@ -153,7 +234,13 @@ export default function ClientesPage() {
         </button>
       </div>
 
-      {error && (
+      {mensajeExito && (
+        <div className="mb-6 rounded-xl bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800 ring-1 ring-emerald-200">
+          {mensajeExito}
+        </div>
+      )}
+
+      {error && !modalAbierto && (
         <div className="mb-6 rounded-xl bg-red-50 px-5 py-4 text-sm font-medium text-red-700 ring-1 ring-red-200">
           {error}
         </div>
@@ -180,8 +267,14 @@ export default function ClientesPage() {
 
       {modalAbierto && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg ring-1 ring-zinc-200">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-lg ring-1 ring-zinc-200">
             <h2 className="text-xl font-bold text-zinc-900">Nuevo cliente</h2>
+
+            {error && (
+              <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">
+                {error}
+              </div>
+            )}
 
             <form onSubmit={guardarCliente} className="mt-6 space-y-4">
               <div>
@@ -211,7 +304,7 @@ export default function ClientesPage() {
                   htmlFor="propietario"
                   className="block text-sm font-medium text-zinc-700"
                 >
-                  Propietario
+                  Nombre del contacto
                 </label>
                 <input
                   id="propietario"
@@ -221,27 +314,6 @@ export default function ClientesPage() {
                     setFormulario({
                       ...formulario,
                       propietario: event.target.value,
-                    })
-                  }
-                  className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="whatsapp"
-                  className="block text-sm font-medium text-zinc-700"
-                >
-                  WhatsApp
-                </label>
-                <input
-                  id="whatsapp"
-                  type="text"
-                  value={formulario.whatsapp}
-                  onChange={(event) =>
-                    setFormulario({
-                      ...formulario,
-                      whatsapp: event.target.value,
                     })
                   }
                   className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
@@ -271,6 +343,27 @@ export default function ClientesPage() {
 
               <div>
                 <label
+                  htmlFor="whatsapp"
+                  className="block text-sm font-medium text-zinc-700"
+                >
+                  WhatsApp
+                </label>
+                <input
+                  id="whatsapp"
+                  type="text"
+                  value={formulario.whatsapp}
+                  onChange={(event) =>
+                    setFormulario({
+                      ...formulario,
+                      whatsapp: event.target.value,
+                    })
+                  }
+                  className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                />
+              </div>
+
+              <div>
+                <label
                   htmlFor="direccion"
                   className="block text-sm font-medium text-zinc-700"
                 >
@@ -290,11 +383,57 @@ export default function ClientesPage() {
                 />
               </div>
 
+              <div>
+                <label
+                  htmlFor="maps_url"
+                  className="block text-sm font-medium text-zinc-700"
+                >
+                  URL de Google Maps{" "}
+                  <span className="font-normal text-zinc-400">(opcional)</span>
+                </label>
+                <input
+                  id="maps_url"
+                  type="text"
+                  placeholder="https://maps.google.com/..."
+                  value={formulario.maps_url}
+                  onChange={(event) =>
+                    setFormulario({
+                      ...formulario,
+                      maps_url: event.target.value,
+                    })
+                  }
+                  className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="observaciones"
+                  className="block text-sm font-medium text-zinc-700"
+                >
+                  Observaciones
+                </label>
+                <textarea
+                  id="observaciones"
+                  rows={3}
+                  placeholder="Horarios de entrega, preferencias, etc."
+                  value={formulario.observaciones}
+                  onChange={(event) =>
+                    setFormulario({
+                      ...formulario,
+                      observaciones: event.target.value,
+                    })
+                  }
+                  className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                />
+              </div>
+
               <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={cerrarModal}
-                  className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+                  disabled={guardando}
+                  className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
                 >
                   Cancelar
                 </button>
