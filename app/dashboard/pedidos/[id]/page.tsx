@@ -40,12 +40,18 @@ function resolverCliente(
   return Array.isArray(clientes) ? (clientes[0] ?? null) : clientes;
 }
 
-function telefonoCliente(cliente: ClienteJoin | null) {
-  return cliente?.telefono?.trim() || cliente?.whatsapp?.trim() || null;
-}
-
 function mapsUrl(direccion: string) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(direccion)}`;
+}
+
+function formatFecha(fecha: string) {
+  return new Date(fecha).toLocaleDateString("es-MX", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 type Props = {
@@ -76,7 +82,8 @@ export default async function PedidoDetallePage({ params }: Props) {
     (todosPedidos?.findIndex((item) => item.id === id) ?? -1) + 1;
   const nombreNegocio = cliente?.nombre_negocio ?? "Cliente sin asignar";
   const direccion = cliente?.direccion?.trim() || null;
-  const telefono = telefonoCliente(cliente);
+  const telefono = cliente?.telefono?.trim() || null;
+  const whatsapp = cliente?.whatsapp?.trim() || null;
   const productosDetectados = detectarProductosEnMensaje(detalle.mensaje_original);
 
   return (
@@ -91,50 +98,51 @@ export default async function PedidoDetallePage({ params }: Props) {
 
         <div className="mx-auto max-w-2xl space-y-4">
           <section className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-zinc-200">
-            <div className="border-b border-zinc-100 bg-zinc-50 px-6 py-5">
+            <div className="px-6 py-5">
               <h1 className="text-3xl font-bold tracking-tight text-zinc-900">
                 {numeroPedido > 0 ? `Pedido ${numeroPedido}` : "Pedido"}
               </h1>
-              <PedidoEstadoBadge />
+              <p className="mt-1 text-sm text-zinc-500">
+                {formatFecha(detalle.fecha)}
+              </p>
+              <div className="mt-3">
+                <PedidoEstadoBadge />
+              </div>
             </div>
           </section>
 
           <section className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
-            <h2 className="mb-4 text-sm font-medium uppercase tracking-wide text-zinc-400">
+            <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-400">
               Mensaje original
             </h2>
-            <p className="whitespace-pre-wrap text-zinc-700">
-              {detalle.mensaje_original ?? "Sin mensaje original."}
-            </p>
-            <p className="mt-3 text-xs text-zinc-400">
-              Referencia para preparación. Más adelante la IA podrá convertir
-              este mensaje en productos del pedido automáticamente.
-            </p>
+            <div className="rounded-lg bg-zinc-50 px-4 py-4 ring-1 ring-zinc-100">
+              <p className="whitespace-pre-wrap text-zinc-800">
+                {detalle.mensaje_original ?? "Sin mensaje original."}
+              </p>
+            </div>
           </section>
 
           <section className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
-            <h2 className="mb-4 text-sm font-medium uppercase tracking-wide text-zinc-400">
+            <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-400">
               Productos detectados
             </h2>
 
             {productosDetectados.length > 0 ? (
-              <ul className="space-y-2 text-zinc-800">
+              <ul className="divide-y divide-zinc-100 rounded-lg bg-zinc-50 ring-1 ring-zinc-100">
                 {productosDetectados.map((producto, index) => (
-                  <li key={`${producto.nombre}-${index}`}>
-                    • {formatearProductoDetectado(producto)}
+                  <li
+                    key={`${producto.nombre}-${index}`}
+                    className="px-4 py-3 text-zinc-800"
+                  >
+                    {formatearProductoDetectado(producto)}
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="text-zinc-600">
+              <p className="rounded-lg bg-zinc-50 px-4 py-3 text-zinc-600 ring-1 ring-zinc-100">
                 No se detectaron productos en el mensaje original.
               </p>
             )}
-
-            <p className="mt-3 text-xs text-zinc-400">
-              Desglose automático para verificar que la interpretación del
-              pedido coincide con el mensaje del cliente.
-            </p>
           </section>
 
           <section className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
@@ -145,27 +153,50 @@ export default async function PedidoDetallePage({ params }: Props) {
             {cliente ? (
               <dl className="space-y-4">
                 <div>
-                  <dt className="text-sm font-medium text-zinc-500">
-                    Nombre del negocio
-                  </dt>
+                  <dt className="text-sm font-medium text-zinc-500">Negocio</dt>
                   <dd className="mt-1 text-xl font-semibold text-zinc-900">
                     {nombreNegocio}
                   </dd>
                 </div>
-                <div>
-                  <dt className="text-sm font-medium text-zinc-500">
-                    Nombre del contacto
-                  </dt>
-                  <dd className="mt-1 text-zinc-800">
-                    {cliente.propietario?.trim() || "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-sm font-medium text-zinc-500">
-                    Teléfono
-                  </dt>
-                  <dd className="mt-1 text-zinc-800">{telefono || "—"}</dd>
-                </div>
+
+                {cliente.propietario?.trim() ? (
+                  <div>
+                    <dt className="text-sm font-medium text-zinc-500">
+                      Contacto
+                    </dt>
+                    <dd className="mt-1 text-zinc-800">
+                      {cliente.propietario.trim()}
+                    </dd>
+                  </div>
+                ) : null}
+
+                {telefono ? (
+                  <div>
+                    <dt className="text-sm font-medium text-zinc-500">
+                      Teléfono
+                    </dt>
+                    <dd className="mt-1 text-zinc-800">{telefono}</dd>
+                  </div>
+                ) : null}
+
+                {whatsapp ? (
+                  <div>
+                    <dt className="text-sm font-medium text-zinc-500">
+                      WhatsApp
+                    </dt>
+                    <dd className="mt-1 text-zinc-800">{whatsapp}</dd>
+                  </div>
+                ) : null}
+
+                {!telefono && !whatsapp ? (
+                  <div>
+                    <dt className="text-sm font-medium text-zinc-500">
+                      Teléfono
+                    </dt>
+                    <dd className="mt-1 text-zinc-800">—</dd>
+                  </div>
+                ) : null}
+
                 <div>
                   <dt className="text-sm font-medium text-zinc-500">
                     Dirección
@@ -173,6 +204,18 @@ export default async function PedidoDetallePage({ params }: Props) {
                   <dd className="mt-1 text-zinc-800">
                     {direccion ?? "Dirección no registrada"}
                   </dd>
+                  {direccion ? (
+                    <dd className="mt-3">
+                      <a
+                        href={mapsUrl(direccion)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center rounded-lg bg-black px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800"
+                      >
+                        📍 Abrir en Google Maps
+                      </a>
+                    </dd>
+                  ) : null}
                 </div>
               </dl>
             ) : (
@@ -180,46 +223,18 @@ export default async function PedidoDetallePage({ params }: Props) {
                 Cliente sin asignar
               </p>
             )}
-
-            {cliente && (
-              <div className="mt-6 border-t border-zinc-100 pt-6">
-                <h3 className="text-sm font-medium uppercase tracking-wide text-zinc-400">
-                  Dirección de entrega
-                </h3>
-                <p className="mt-2 text-zinc-700">
-                  {direccion ?? "Dirección no registrada"}
-                </p>
-
-                {direccion ? (
-                  <a
-                    href={mapsUrl(direccion)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-4 inline-flex items-center rounded-lg bg-black px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800"
-                  >
-                    📍 Abrir en Google Maps
-                  </a>
-                ) : (
-                  <button
-                    type="button"
-                    disabled
-                    className="mt-4 inline-flex cursor-not-allowed items-center rounded-lg bg-zinc-200 px-4 py-2.5 text-sm font-medium text-zinc-500"
-                  >
-                    📍 Abrir en Google Maps
-                  </button>
-                )}
-              </div>
-            )}
           </section>
 
-          <section className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
-            <h2 className="mb-4 text-sm font-medium uppercase tracking-wide text-zinc-400">
-              Observaciones
-            </h2>
-            <p className="whitespace-pre-wrap text-zinc-700">
-              {detalle.observaciones || "Sin observaciones."}
-            </p>
-          </section>
+          {(detalle.observaciones?.trim() ?? "") !== "" && (
+            <section className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
+              <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-400">
+                Observaciones
+              </h2>
+              <p className="whitespace-pre-wrap text-zinc-700">
+                {detalle.observaciones}
+              </p>
+            </section>
+          )}
 
           <PedidoEstadoBotones />
         </div>
