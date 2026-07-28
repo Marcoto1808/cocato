@@ -4,6 +4,7 @@ export type Producto = {
   precio_kg: number;
   unidad: string;
   categoria: string;
+  subcategoria: string;
   activo: boolean;
 };
 

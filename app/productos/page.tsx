@@ -2,16 +2,31 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import type { PostgrestError } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import ProductosTable, { type Producto } from "@/components/productos/ProductosTable";
 
-const CATEGORIAS = ["Res", "Cerdo", "Pollo", "Otros"] as const;
+// Deben coincidir con los CHECK constraints de public.productos.
+const CATEGORIAS = ["Res", "Cerdo"] as const;
+const SUBCATEGORIAS = [
+  "Corte",
+  "Embutido",
+  "Vísceras",
+  "Huesos",
+  "Grasa",
+  "Obrador",
+] as const;
+const UNIDADES = ["kg", "pieza", "paquete", "caja"] as const;
+
+const COLUMNAS_PRODUCTO =
+  "id, nombre, precio_kg, unidad, categoria, subcategoria, activo";
 
 type FormularioProducto = {
   nombre: string;
   precio_kg: string;
   unidad: string;
   categoria: string;
+  subcategoria: string;
   activo: boolean;
 };
 
@@ -20,8 +35,24 @@ const FORMULARIO_VACIO: FormularioProducto = {
   precio_kg: "",
   unidad: "kg",
   categoria: "Res",
+  subcategoria: "Corte",
   activo: true,
 };
+
+function formatearErrorSupabase(error: PostgrestError | null): string {
+  if (!error) {
+    return "Sin respuesta de Supabase.";
+  }
+
+  return [
+    error.message,
+    error.details ? `Detalle: ${error.details}` : null,
+    error.hint ? `Hint: ${error.hint}` : null,
+    error.code ? `Código: ${error.code}` : null,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
 
 export default function ProductosPage() {
   const [productos, setProductos] = useState<Producto[]>([]);
@@ -47,11 +78,14 @@ export default function ProductosPage() {
 
     const { data, error: queryError } = await supabase
       .from("productos")
-      .select("id, nombre, precio_kg, unidad, categoria, activo")
+      .select(COLUMNAS_PRODUCTO)
       .order("nombre", { ascending: true });
 
     if (queryError) {
-      setError("No se pudieron cargar los productos.");
+      console.error("[productos] select error:", queryError);
+      setError(
+        `No se pudieron cargar los productos. ${formatearErrorSupabase(queryError)}`
+      );
       setCargando(false);
       return;
     }
@@ -63,6 +97,7 @@ export default function ProductosPage() {
   function abrirModalNuevo() {
     setProductoEditando(null);
     setFormulario(FORMULARIO_VACIO);
+    setError(null);
     setModalAbierto(true);
   }
 
@@ -73,8 +108,10 @@ export default function ProductosPage() {
       precio_kg: String(producto.precio_kg),
       unidad: producto.unidad,
       categoria: producto.categoria,
+      subcategoria: producto.subcategoria,
       activo: producto.activo,
     });
+    setError(null);
     setModalAbierto(true);
   }
 
@@ -91,15 +128,17 @@ export default function ProductosPage() {
     const precio = Number(formulario.precio_kg);
     const unidad = formulario.unidad.trim();
     const categoria = formulario.categoria.trim();
+    const subcategoria = formulario.subcategoria.trim();
 
     if (
       !nombre ||
       !unidad ||
       !categoria ||
+      !subcategoria ||
       Number.isNaN(precio) ||
       precio < 0
     ) {
-      setError("Completa nombre, categoría, precio válido y unidad.");
+      setError("Completa nombre, categoría, subcategoría, precio válido y unidad.");
       return;
     }
 
@@ -111,8 +150,11 @@ export default function ProductosPage() {
       precio_kg: precio,
       unidad,
       categoria,
+      subcategoria,
       activo: formulario.activo,
     };
+
+    console.log("[productos] save payload:", payload);
 
     const { error: saveError } = productoEditando
       ? await supabase
@@ -122,7 +164,13 @@ export default function ProductosPage() {
       : await supabase.from("productos").insert(payload);
 
     if (saveError) {
-      setError("No se pudo guardar el producto.");
+      console.error("[productos] save error.code:", saveError.code);
+      console.error("[productos] save error.message:", saveError.message);
+      console.error("[productos] save error.details:", saveError.details);
+      console.error("[productos] save error.hint:", saveError.hint);
+      setError(
+        `No se pudo guardar el producto. ${formatearErrorSupabase(saveError)}`
+      );
       setGuardando(false);
       return;
     }
@@ -141,7 +189,10 @@ export default function ProductosPage() {
       .eq("id", producto.id);
 
     if (updateError) {
-      setError("No se pudo actualizar el estado del producto.");
+      console.error("[productos] toggle error:", updateError);
+      setError(
+        `No se pudo actualizar el estado del producto. ${formatearErrorSupabase(updateError)}`
+      );
       return;
     }
 
@@ -211,7 +262,7 @@ export default function ProductosPage() {
         </div>
       </div>
 
-      {error && (
+      {error && !modalAbierto && (
         <div className="mb-6 rounded-xl bg-red-50 px-5 py-4 text-sm font-medium text-red-700 ring-1 ring-red-200">
           {error}
         </div>
@@ -255,10 +306,16 @@ export default function ProductosPage() {
 
       {modalAbierto && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg ring-1 ring-zinc-200">
+          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-white p-6 shadow-lg ring-1 ring-zinc-200">
             <h2 className="text-xl font-bold text-zinc-900">
               {productoEditando ? "Editar producto" : "Nuevo producto"}
             </h2>
+
+            {error && (
+              <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">
+                {error}
+              </div>
+            )}
 
             <form onSubmit={guardarProducto} className="mt-6 space-y-4">
               <div>
@@ -309,6 +366,33 @@ export default function ProductosPage() {
 
               <div>
                 <label
+                  htmlFor="subcategoria"
+                  className="block text-sm font-medium text-zinc-700"
+                >
+                  Subcategoría
+                </label>
+                <select
+                  id="subcategoria"
+                  required
+                  value={formulario.subcategoria}
+                  onChange={(event) =>
+                    setFormulario({
+                      ...formulario,
+                      subcategoria: event.target.value,
+                    })
+                  }
+                  className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                >
+                  {SUBCATEGORIAS.map((subcategoria) => (
+                    <option key={subcategoria} value={subcategoria}>
+                      {subcategoria}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label
                   htmlFor="precio_kg"
                   className="block text-sm font-medium text-zinc-700"
                 >
@@ -338,16 +422,21 @@ export default function ProductosPage() {
                 >
                   Unidad
                 </label>
-                <input
+                <select
                   id="unidad"
-                  type="text"
                   required
                   value={formulario.unidad}
                   onChange={(event) =>
                     setFormulario({ ...formulario, unidad: event.target.value })
                   }
                   className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                />
+                >
+                  {UNIDADES.map((unidad) => (
+                    <option key={unidad} value={unidad}>
+                      {unidad}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {productoEditando && (
@@ -371,7 +460,8 @@ export default function ProductosPage() {
                 <button
                   type="button"
                   onClick={cerrarModal}
-                  className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+                  disabled={guardando}
+                  className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
                 >
                   Cancelar
                 </button>
