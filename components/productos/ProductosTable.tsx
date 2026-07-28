@@ -1,3 +1,8 @@
+import {
+  ETIQUETAS_TIPO_CALCULO,
+  type TipoCalculoProducto,
+} from "@/lib/tipo-calculo-producto";
+
 export type Producto = {
   id: string;
   nombre: string;
@@ -5,6 +10,7 @@ export type Producto = {
   unidad: string;
   categoria: string;
   subcategoria: string;
+  tipo_calculo: TipoCalculoProducto;
   activo: boolean;
 };
 
@@ -54,7 +60,7 @@ export default function ProductosTable({
   return (
     <div className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-zinc-200">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px]">
+        <table className="w-full min-w-[920px]">
           <thead className="bg-zinc-100">
             <tr>
               <th className="p-3 text-left text-sm font-medium text-zinc-700">
@@ -68,6 +74,9 @@ export default function ProductosTable({
               </th>
               <th className="p-3 text-left text-sm font-medium text-zinc-700">
                 Unidad
+              </th>
+              <th className="p-3 text-left text-sm font-medium text-zinc-700">
+                Tipo de cálculo
               </th>
               <th className="p-3 text-left text-sm font-medium text-zinc-700">
                 Estado
@@ -95,6 +104,10 @@ export default function ProductosTable({
                   {formatPrecio(producto.precio_kg)}
                 </td>
                 <td className="p-3 text-zinc-700">{producto.unidad}</td>
+                <td className="p-3 text-zinc-700">
+                  {ETIQUETAS_TIPO_CALCULO[producto.tipo_calculo] ??
+                    producto.tipo_calculo}
+                </td>
                 <td className="p-3">
                   <span
                     className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${

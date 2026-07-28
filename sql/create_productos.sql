@@ -20,6 +20,7 @@ CREATE TABLE public.productos (
   subcategoria TEXT NOT NULL,
   unidad TEXT NOT NULL DEFAULT 'kg',
   precio_kg NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  tipo_calculo TEXT NOT NULL DEFAULT 'POR_KILO',
   activo BOOLEAN NOT NULL DEFAULT true,
   orden INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -33,7 +34,9 @@ CREATE TABLE public.productos (
   CONSTRAINT productos_unidad_check
     CHECK (unidad IN ('kg', 'pieza', 'paquete', 'caja')),
   CONSTRAINT productos_precio_kg_check
-    CHECK (precio_kg >= 0)
+    CHECK (precio_kg >= 0),
+  CONSTRAINT productos_tipo_calculo_check
+    CHECK (tipo_calculo IN ('POR_KILO', 'POR_PESO_REAL', 'PRECIO_FIJO'))
 );
 
 CREATE INDEX idx_productos_categoria ON public.productos (categoria);

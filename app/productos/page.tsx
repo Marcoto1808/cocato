@@ -4,6 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import {
+  DESCRIPCION_TIPO_CALCULO,
+  ETIQUETAS_TIPO_CALCULO,
+  TIPOS_CALCULO,
+  tipoCalculoPorDefecto,
+  type TipoCalculoProducto,
+} from "@/lib/tipo-calculo-producto";
 import ProductosTable, { type Producto } from "@/components/productos/ProductosTable";
 
 // Deben coincidir con los CHECK constraints de public.productos.
@@ -19,7 +26,7 @@ const SUBCATEGORIAS = [
 const UNIDADES = ["kg", "pieza", "paquete", "caja"] as const;
 
 const COLUMNAS_PRODUCTO =
-  "id, nombre, precio_kg, unidad, categoria, subcategoria, activo";
+  "id, nombre, precio_kg, unidad, categoria, subcategoria, tipo_calculo, activo";
 
 type FormularioProducto = {
   nombre: string;
@@ -27,6 +34,7 @@ type FormularioProducto = {
   unidad: string;
   categoria: string;
   subcategoria: string;
+  tipo_calculo: TipoCalculoProducto;
   activo: boolean;
 };
 
@@ -36,6 +44,7 @@ const FORMULARIO_VACIO: FormularioProducto = {
   unidad: "kg",
   categoria: "Res",
   subcategoria: "Corte",
+  tipo_calculo: "POR_KILO",
   activo: true,
 };
 
@@ -109,6 +118,7 @@ export default function ProductosPage() {
       unidad: producto.unidad,
       categoria: producto.categoria,
       subcategoria: producto.subcategoria,
+      tipo_calculo: producto.tipo_calculo,
       activo: producto.activo,
     });
     setError(null);
@@ -129,16 +139,20 @@ export default function ProductosPage() {
     const unidad = formulario.unidad.trim();
     const categoria = formulario.categoria.trim();
     const subcategoria = formulario.subcategoria.trim();
+    const tipo_calculo = formulario.tipo_calculo;
 
     if (
       !nombre ||
       !unidad ||
       !categoria ||
       !subcategoria ||
+      !tipo_calculo ||
       Number.isNaN(precio) ||
       precio < 0
     ) {
-      setError("Completa nombre, categoría, subcategoría, precio válido y unidad.");
+      setError(
+        "Completa nombre, categoría, subcategoría, tipo de cálculo, precio válido y unidad."
+      );
       return;
     }
 
@@ -151,6 +165,7 @@ export default function ProductosPage() {
       unidad,
       categoria,
       subcategoria,
+      tipo_calculo,
       activo: formulario.activo,
     };
 
@@ -426,9 +441,16 @@ export default function ProductosPage() {
                   id="unidad"
                   required
                   value={formulario.unidad}
-                  onChange={(event) =>
-                    setFormulario({ ...formulario, unidad: event.target.value })
-                  }
+                  onChange={(event) => {
+                    const unidad = event.target.value;
+                    setFormulario((prev) => ({
+                      ...prev,
+                      unidad,
+                      tipo_calculo: productoEditando
+                        ? prev.tipo_calculo
+                        : tipoCalculoPorDefecto(unidad),
+                    }));
+                  }}
                   className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
                 >
                   {UNIDADES.map((unidad) => (
@@ -437,6 +459,36 @@ export default function ProductosPage() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="tipo_calculo"
+                  className="block text-sm font-medium text-zinc-700"
+                >
+                  Tipo de cálculo
+                </label>
+                <select
+                  id="tipo_calculo"
+                  required
+                  value={formulario.tipo_calculo}
+                  onChange={(event) =>
+                    setFormulario({
+                      ...formulario,
+                      tipo_calculo: event.target.value as TipoCalculoProducto,
+                    })
+                  }
+                  className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                >
+                  {TIPOS_CALCULO.map((tipo) => (
+                    <option key={tipo} value={tipo}>
+                      {ETIQUETAS_TIPO_CALCULO[tipo]}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-zinc-500">
+                  {DESCRIPCION_TIPO_CALCULO[formulario.tipo_calculo]}
+                </p>
               </div>
 
               {productoEditando && (
