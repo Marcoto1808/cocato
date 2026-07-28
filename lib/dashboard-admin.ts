@@ -66,3 +66,41 @@ export function formatearHoraPedido(fecha: string) {
     minute: "2-digit",
   });
 }
+
+export function formatearFechaActual(fecha = new Date()) {
+  return fecha.toLocaleDateString("es-MX", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+export function formatearHoraActual(fecha = new Date()) {
+  return fecha.toLocaleTimeString("es-MX", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+export function formatearUltimaActualizacion(fecha = new Date()) {
+  return fecha.toLocaleString("es-MX", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export function esPedidoPendienteAntiguo(
+  fechaIso: string,
+  estado: string,
+  horasLimite = 4
+) {
+  const categoria = estado.toLowerCase();
+  if (!categoria.includes("pendiente")) return false;
+
+  const limite = Date.now() - horasLimite * 60 * 60 * 1000;
+  return new Date(fechaIso).getTime() < limite;
+}
