@@ -3,6 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { normalizarRol } from "@/lib/roles";
+
+function guardarSesion(usuario: string, rol: string) {
+  document.cookie = `cocato_usuario=${encodeURIComponent(usuario)}; path=/; SameSite=Lax`;
+  document.cookie = `cocato_rol=${encodeURIComponent(rol)}; path=/; SameSite=Lax`;
+}
 
 export default function Login() {
   const router = useRouter();
@@ -10,9 +16,7 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const handleSubmit = async (
-    e: React.FormEvent<HTMLFormElement>
-  ) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     const { data } = await supabase
@@ -21,13 +25,16 @@ export default function Login() {
       .eq("usuario", email)
       .eq("password", password)
       .single();
-    
+
     if (data) {
-      router.push("/dashboard");
+      const rol = normalizarRol(String(data.rol ?? "")) ?? "colaborador";
+      guardarSesion(String(data.usuario), rol);
+      router.push(
+        rol === "administrador" ? "/dashboard/admin" : "/dashboard"
+      );
     } else {
       alert("Usuario o contraseña incorrectos");
     }
-    
   };
 
   return (

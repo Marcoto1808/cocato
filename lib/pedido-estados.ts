@@ -33,6 +33,20 @@ export function esPedidoEntregado(estado: string) {
   return normalizarEstado(estado) === "entregado";
 }
 
+export function esPedidoOperativo(estado: string) {
+  const categoria = normalizarEstado(estado);
+
+  return (
+    categoria === "pendiente" ||
+    categoria === "preparando" ||
+    categoria === "listo"
+  );
+}
+
+export function esPedidoEnReparto(estado: string) {
+  return normalizarEstado(estado) === "reparto";
+}
+
 export function etiquetaEstado(estado: string | null) {
   if (!estado) return "Sin estado";
 
