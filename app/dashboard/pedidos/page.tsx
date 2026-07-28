@@ -1,5 +1,10 @@
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import {
+  esPedidoActivo,
+  normalizarEstado,
+  type EstadoCategoria,
+} from "@/lib/pedido-estados";
 
 export const dynamic = "force-dynamic";
 
@@ -30,39 +35,14 @@ function telefonoCliente(cliente: ClienteJoin | null) {
   return cliente?.telefono?.trim() || cliente?.whatsapp?.trim() || null;
 }
 
-type EstadoCategoria =
-  | "pendiente"
-  | "preparando"
-  | "listo"
-  | "reparto"
-  | "entregado";
-
-function normalizarEstado(estado: string): EstadoCategoria | null {
-  const valor = estado.toLowerCase().trim();
-
-  if (valor.includes("pendiente")) return "pendiente";
-  if (valor.includes("listo")) return "listo";
-  if (valor.includes("preparando")) return "preparando";
-  if (valor.includes("reparto")) return "reparto";
-  if (valor.includes("entregado")) return "entregado";
-
-  return null;
-}
-
-function formatFecha(fecha: string) {
-  return new Date(fecha).toLocaleDateString("es-MX", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-}
+type EstadoCategoriaActivo = Exclude<EstadoCategoria, "entregado">;
 
 function contarPorEstado(pedidos: Pedido[]) {
   return pedidos.reduce(
     (acc, pedido) => {
       const categoria = normalizarEstado(pedido.estado);
 
-      if (categoria) {
+      if (categoria && categoria !== "entregado") {
         acc[categoria] += 1;
       }
 
@@ -73,7 +53,6 @@ function contarPorEstado(pedidos: Pedido[]) {
       preparando: 0,
       listo: 0,
       reparto: 0,
-      entregado: 0,
     }
   );
 }
@@ -83,8 +62,16 @@ function nombreCliente(pedido: Pedido) {
   return cliente?.nombre_negocio ?? "Cliente sin asignar";
 }
 
+function formatFecha(fecha: string) {
+  return new Date(fecha).toLocaleDateString("es-MX", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
 const FILTROS: {
-  clave: EstadoCategoria;
+  clave: EstadoCategoriaActivo;
   etiqueta: string;
   contador: keyof ReturnType<typeof contarPorEstado>;
   color: string;
@@ -118,21 +105,16 @@ const FILTROS: {
     color: "text-blue-600",
     anillo: "ring-blue-500",
   },
-  {
-    clave: "entregado",
-    etiqueta: "✅ Entregados",
-    contador: "entregado",
-    color: "text-emerald-600",
-    anillo: "ring-emerald-500",
-  },
 ];
 
-function esEstadoCategoria(valor: string | undefined): valor is EstadoCategoria {
+function esEstadoCategoria(
+  valor: string | undefined
+): valor is EstadoCategoriaActivo {
   return FILTROS.some((filtro) => filtro.clave === valor);
 }
 
 function urlPedidos(params: {
-  estado?: EstadoCategoria;
+  estado?: EstadoCategoriaActivo;
   actualizado?: string;
   creado?: string;
 }) {
@@ -186,7 +168,9 @@ export default async function PedidosPage({
     );
   }
 
-  const lista = (pedidos ?? []) as Pedido[];
+  const lista = ((pedidos ?? []) as Pedido[]).filter((pedido) =>
+    esPedidoActivo(pedido.estado)
+  );
   const contadores = contarPorEstado(lista);
   const listaFiltrada = filtroActivo
     ? lista.filter(
@@ -209,12 +193,20 @@ export default async function PedidosPage({
           <p className="mt-1 text-zinc-500">Bandeja de trabajo</p>
         </div>
 
-        <Link
-          href="/dashboard/pedidos/nuevo"
-          className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800"
-        >
-          + Nuevo pedido
-        </Link>
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href="/dashboard/pedidos/anteriores"
+            className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
+          >
+            Pedidos anteriores
+          </Link>
+          <Link
+            href="/dashboard/pedidos/nuevo"
+            className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800"
+          >
+            + Nuevo pedido
+          </Link>
+        </div>
       </div>
 
       {creado && (
@@ -242,7 +234,7 @@ export default async function PedidosPage({
         </Link>
       </div>
 
-      <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {FILTROS.map((filtro) => {
           const activo = filtroActivo === filtro.clave;
 
@@ -349,7 +341,7 @@ export default async function PedidosPage({
         <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
           {filtroActivo
             ? "No hay pedidos en este estado."
-            : "No hay pedidos registrados."}
+            : "No hay pedidos activos."}
         </div>
       )}
     </main>

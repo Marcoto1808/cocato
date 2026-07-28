@@ -5,6 +5,7 @@ import {
   detectarProductosEnMensaje,
   formatearProductoDetectado,
 } from "@/lib/productos-detectados";
+import { esPedidoEntregado } from "@/lib/pedido-estados";
 import {
   PedidoEstadoBadge,
   PedidoEstadoBotones,
@@ -61,7 +62,8 @@ type Props = {
 export default async function PedidoDetallePage({ params }: Props) {
   const { id } = await params;
 
-  const [{ data: pedido, error }, { data: todosPedidos }] = await Promise.all([
+  const [{ data: pedido, error }, { data: todosPedidos }, { data: catalogoProductos }] =
+    await Promise.all([
     supabase
       .from("pedidos")
       .select(
@@ -70,6 +72,7 @@ export default async function PedidoDetallePage({ params }: Props) {
       .eq("id", id)
       .single(),
     supabase.from("pedidos").select("id").order("fecha", { ascending: false }),
+    supabase.from("productos").select("nombre, unidad").eq("activo", true),
   ]);
 
   if (error || !pedido) {
@@ -84,16 +87,26 @@ export default async function PedidoDetallePage({ params }: Props) {
   const direccion = cliente?.direccion?.trim() || null;
   const telefono = cliente?.telefono?.trim() || null;
   const whatsapp = cliente?.whatsapp?.trim() || null;
-  const productosDetectados = detectarProductosEnMensaje(detalle.mensaje_original);
+  const productosDetectados = detectarProductosEnMensaje(
+    detalle.mensaje_original,
+    catalogoProductos ?? []
+  );
+  const pedidoEntregado = esPedidoEntregado(detalle.estado ?? "");
 
   return (
     <PedidoEstadoProvider pedidoId={id} estadoInicial={detalle.estado}>
       <main className="min-h-screen bg-zinc-100 p-8">
         <Link
-          href="/dashboard/pedidos"
+          href={
+            pedidoEntregado
+              ? "/dashboard/pedidos/anteriores"
+              : "/dashboard/pedidos"
+          }
           className="mb-6 inline-block text-sm text-zinc-500 hover:text-zinc-900"
         >
-          ← Volver a Pedidos
+          {pedidoEntregado
+            ? "← Volver a Pedidos anteriores"
+            : "← Volver a Pedidos"}
         </Link>
 
         <div className="mx-auto max-w-2xl space-y-4">

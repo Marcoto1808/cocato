@@ -8,13 +8,12 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-
-type EstadoCategoria =
-  | "pendiente"
-  | "preparando"
-  | "listo"
-  | "reparto"
-  | "entregado";
+import {
+  esPedidoEntregado,
+  etiquetaEstado,
+  normalizarEstado,
+  type EstadoCategoria,
+} from "@/lib/pedido-estados";
 
 const ESTADOS = [
   {
@@ -46,42 +45,9 @@ const PedidoEstadoContext = createContext<PedidoEstadoContextValue | null>(
   null
 );
 
-function normalizarEstado(estado: string): EstadoCategoria | null {
-  const valor = estado.toLowerCase().trim();
-
-  if (valor.includes("pendiente")) return "pendiente";
-  if (valor.includes("listo")) return "listo";
-  if (valor.includes("preparando")) return "preparando";
-  if (valor.includes("reparto")) return "reparto";
-  if (valor.includes("entregado")) return "entregado";
-
-  return null;
-}
-
 function estadoEsActivo(estadoActual: string | null, valor: string) {
   if (!estadoActual) return false;
   return estadoActual.toLowerCase() === valor.toLowerCase();
-}
-
-function etiquetaEstado(estado: string | null) {
-  if (!estado) return "Sin estado";
-
-  const categoria = normalizarEstado(estado);
-
-  switch (categoria) {
-    case "pendiente":
-      return "🟡 Pendiente";
-    case "preparando":
-      return "🟡 Preparando";
-    case "listo":
-      return "🟢 Listo";
-    case "reparto":
-      return "🚚 En reparto";
-    case "entregado":
-      return "✅ Entregado";
-    default:
-      return estado;
-  }
 }
 
 function estiloEstado(estado: string | null) {
@@ -176,9 +142,11 @@ export function PedidoEstadoProvider({
     setCargando(null);
 
     window.setTimeout(() => {
-      router.push(
-        `/dashboard/pedidos?actualizado=${encodeURIComponent(nuevoEstado)}`
-      );
+      const destino = esPedidoEntregado(nuevoEstado)
+        ? `/dashboard/pedidos/anteriores?actualizado=${encodeURIComponent(nuevoEstado)}`
+        : `/dashboard/pedidos?actualizado=${encodeURIComponent(nuevoEstado)}`;
+
+      router.push(destino);
       router.refresh();
     }, 1500);
   }
