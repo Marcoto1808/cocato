@@ -1,8 +1,9 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { cookies } from "next/headers";
 import { supabase } from "@/lib/supabase";
+import { obtenerSesion } from "@/lib/auth-server";
 import AdminBarraSuperior from "./AdminBarraSuperior";
+import CerrarSesionButton from "@/components/navegacion/CerrarSesionButton";
 import {
   esClienteActivoReciente,
   esFechaHoy,
@@ -190,9 +191,8 @@ function construirActividades(pedidos: PedidoResumen[]): Actividad[] {
 
 export default async function AdminDashboardPage() {
   const ahora = new Date();
-  const cookieStore = await cookies();
-  const nombreUsuario = cookieStore.get("cocato_usuario")?.value ?? null;
-  const saludo = generarSaludo(nombreUsuario);
+  const sesion = await obtenerSesion();
+  const saludo = generarSaludo(sesion?.nombre ?? sesion?.usuario ?? null);
 
   const [
     { data: pedidos },
@@ -308,12 +308,17 @@ export default async function AdminDashboardPage() {
   return (
     <main className="min-h-screen bg-zinc-50 p-6 md:p-8">
       <div className="mx-auto max-w-7xl space-y-10">
-        <AdminBarraSuperior
-          saludo={saludo}
-          fechaInicial={formatearFechaActual(ahora)}
-          horaInicial={formatearHoraActual(ahora)}
-          ultimaActualizacion={formatearUltimaActualizacion(ahora)}
-        />
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <AdminBarraSuperior
+              saludo={saludo}
+              fechaInicial={formatearFechaActual(ahora)}
+              horaInicial={formatearHoraActual(ahora)}
+              ultimaActualizacion={formatearUltimaActualizacion(ahora)}
+            />
+          </div>
+          <CerrarSesionButton className="rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50" />
+        </div>
 
         <section aria-labelledby="acciones-rapidas">
           <h2 id="acciones-rapidas" className="sr-only">

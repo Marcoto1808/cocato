@@ -2,80 +2,114 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
-import { normalizarRol } from "@/lib/roles";
-import {
-  guardarSesionEnCookies,
-  rutaDashboardPorRol,
-} from "@/lib/navegacion-dashboard";
 
 export default function Login() {
   const router = useRouter();
-
-  const [email, setEmail] = useState("");
+  const [usuario, setUsuario] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [enviando, setEnviando] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setEnviando(true);
 
-    const { data } = await supabase
-      .from("usuarios")
-      .select("*")
-      .eq("usuario", email)
-      .eq("password", password)
-      .single();
+    try {
+      const respuesta = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usuario, password }),
+      });
 
-    if (data) {
-      const rol = normalizarRol(String(data.rol ?? "")) ?? "colaborador";
-      guardarSesionEnCookies(String(data.usuario), rol);
-      router.push(rutaDashboardPorRol(rol));
-    } else {
-      alert("Usuario o contraseña incorrectos");
+      const datos = (await respuesta.json()) as {
+        error?: string;
+        redirectTo?: string;
+      };
+
+      if (!respuesta.ok) {
+        setError(
+          datos.error ??
+            (respuesta.status === 403
+              ? "Este usuario está deshabilitado."
+              : "Usuario o contraseña incorrectos.")
+        );
+        setEnviando(false);
+        return;
+      }
+
+      router.push(datos.redirectTo ?? "/dashboard");
+      router.refresh();
+    } catch {
+      setError("No se pudo iniciar sesión. Intenta de nuevo.");
+      setEnviando(false);
     }
-  };
+  }
 
   return (
-<div className="flex min-h-screen items-center justify-center bg-gray-100">
-  <div className="w-full max-w-md rounded-xl bg-white p-8 shadow-lg">
+    <div className="flex min-h-screen items-center justify-center bg-zinc-100 px-4">
+      <div className="w-full max-w-md rounded-xl bg-white p-8 shadow-lg ring-1 ring-zinc-200">
+        <h1 className="text-center text-3xl font-bold text-zinc-900">COCATO</h1>
+        <p className="mt-2 text-center text-zinc-500">
+          Sistema Integral de Distribución de Carne
+        </p>
 
-    <h1 className="text-3xl font-bold text-center">
-      COCATO
-    </h1>
+        <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+          <div>
+            <label
+              htmlFor="usuario"
+              className="mb-2 block text-sm font-medium text-zinc-700"
+            >
+              Usuario
+            </label>
+            <input
+              id="usuario"
+              type="text"
+              placeholder="Usuario"
+              value={usuario}
+              onChange={(event) => setUsuario(event.target.value)}
+              autoComplete="username"
+              required
+              disabled={enviando}
+              className="w-full rounded-lg border border-zinc-300 px-4 py-3 text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-200"
+            />
+          </div>
 
-    <p className="mt-2 text-center text-gray-500">
-      Sistema Integral de Distribución de Carne
-    </p>
+          <div>
+            <label
+              htmlFor="password"
+              className="mb-2 block text-sm font-medium text-zinc-700"
+            >
+              Contraseña
+            </label>
+            <input
+              id="password"
+              type="password"
+              placeholder="Contraseña"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+              required
+              disabled={enviando}
+              className="w-full rounded-lg border border-zinc-300 px-4 py-3 text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-200"
+            />
+          </div>
 
-    <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+          {error ? (
+            <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">
+              {error}
+            </div>
+          ) : null}
 
-      <input
-        type="text"
-        placeholder="Usuario"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        className="w-full rounded-lg border p-3"
-      />
-
-      <input
-        type="password"
-        placeholder="Contraseña"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        className="w-full rounded-lg border p-3"
-      />
-
-      <button
-        type="submit"
-        className="w-full rounded-lg bg-black p-3 text-white"
-      >
-        Entrar
-      </button>
-
-    </form>
-
-  </div>
-</div>
-
-    
+          <button
+            type="submit"
+            disabled={enviando}
+            className="w-full rounded-lg bg-black py-3 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {enviando ? "Entrando..." : "Entrar"}
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }

@@ -17,9 +17,11 @@ export type PermisoPedido =
 
 export type Usuario = {
   id: string;
+  nombre: string;
   usuario: string;
-  password?: string;
+  correo?: string | null;
   rol: RolUsuario;
+  activo?: boolean;
 };
 
 export const ROLES: RolUsuario[] = ["administrador", "colaborador"];
@@ -73,7 +75,7 @@ export function normalizarRol(valor: string | null | undefined): RolUsuario | nu
   const rol = valor.toLowerCase().trim();
 
   if (rol === "administrador" || rol === "admin") return "administrador";
-  if (rol === "colaborador") return "colaborador";
+  if (rol === "colaborador" || rol === "trabajador") return "colaborador";
 
   return null;
 }
@@ -108,14 +110,21 @@ export function modulosDisponibles(rol: RolUsuario): Modulo[] {
 export function usuarioDesdeSupabase(data: Record<string, unknown>): Usuario | null {
   const rol = normalizarRol(String(data.rol ?? ""));
 
-  if (!rol || typeof data.id !== "string" || typeof data.usuario !== "string") {
+  if (
+    !rol ||
+    typeof data.id !== "string" ||
+    typeof data.usuario !== "string" ||
+    typeof data.nombre !== "string"
+  ) {
     return null;
   }
 
   return {
     id: data.id,
+    nombre: data.nombre,
     usuario: data.usuario,
     rol,
-    ...(typeof data.password === "string" ? { password: data.password } : {}),
+    ...(typeof data.correo === "string" ? { correo: data.correo } : {}),
+    ...(typeof data.activo === "boolean" ? { activo: data.activo } : {}),
   };
 }

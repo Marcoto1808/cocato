@@ -1,10 +1,7 @@
-import { cookies } from "next/headers";
-import {
-  COOKIE_ROL,
-  rutaDashboardDesdeCookie,
-} from "@/lib/navegacion-dashboard";
+import { obtenerSesion } from "@/lib/auth-server";
+import { rutaDashboardPorRol } from "@/lib/navegacion-dashboard";
 
 export async function obtenerRutaDashboardServidor() {
-  const cookieStore = await cookies();
-  return rutaDashboardDesdeCookie(cookieStore.get(COOKIE_ROL)?.value);
+  const sesion = await obtenerSesion();
+  return rutaDashboardPorRol(sesion?.rol);
 }

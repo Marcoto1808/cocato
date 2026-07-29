@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { esPedidoActivo } from "@/lib/pedido-estados";
+import CerrarSesionButton from "@/components/navegacion/CerrarSesionButton";
 
 export const dynamic = "force-dynamic";
 
@@ -13,9 +14,13 @@ export default async function Dashboard() {
 
   return (
     <main className="min-h-screen bg-zinc-100 p-8">
-      <h1 className="text-3xl font-bold">Bienvenido a COCATO</h1>
-
-      <p className="mt-2 text-zinc-600">Has iniciado sesión correctamente.</p>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold">Bienvenido a COCATO</h1>
+          <p className="mt-2 text-zinc-600">Has iniciado sesión correctamente.</p>
+        </div>
+        <CerrarSesionButton />
+      </div>
 
       <div className="mt-10 grid grid-cols-2 gap-6">
         <Link href="/clientes">
