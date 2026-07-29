@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import ClientesTable from "@/components/clientes/ClientesTable";
+import VolverAlDashboardLink from "@/components/navegacion/VolverAlDashboardLink";
 
 function formatearErrorSupabase(error: PostgrestError | null): string {
   if (!error) {
@@ -212,12 +213,7 @@ export default function ClientesPage() {
 
   return (
     <main className="min-h-screen bg-zinc-100 p-8">
-      <Link
-        href="/dashboard"
-        className="mb-6 inline-block text-sm text-zinc-500 hover:text-zinc-900"
-      >
-        ← Volver al Dashboard
-      </Link>
+      <VolverAlDashboardLink />
 
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>

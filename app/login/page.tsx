@@ -4,11 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { normalizarRol } from "@/lib/roles";
-
-function guardarSesion(usuario: string, rol: string) {
-  document.cookie = `cocato_usuario=${encodeURIComponent(usuario)}; path=/; SameSite=Lax`;
-  document.cookie = `cocato_rol=${encodeURIComponent(rol)}; path=/; SameSite=Lax`;
-}
+import {
+  guardarSesionEnCookies,
+  rutaDashboardPorRol,
+} from "@/lib/navegacion-dashboard";
 
 export default function Login() {
   const router = useRouter();
@@ -28,10 +27,8 @@ export default function Login() {
 
     if (data) {
       const rol = normalizarRol(String(data.rol ?? "")) ?? "colaborador";
-      guardarSesion(String(data.usuario), rol);
-      router.push(
-        rol === "administrador" ? "/dashboard/admin" : "/dashboard"
-      );
+      guardarSesionEnCookies(String(data.usuario), rol);
+      router.push(rutaDashboardPorRol(rol));
     } else {
       alert("Usuario o contraseña incorrectos");
     }

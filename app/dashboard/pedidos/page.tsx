@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { obtenerRutaDashboardServidor } from "@/lib/navegacion-dashboard-server";
 import {
   esPedidoActivo,
   normalizarEstado,
@@ -143,6 +144,7 @@ export default async function PedidosPage({
 }) {
   const { actualizado, estado: estadoParam, creado } = await searchParams;
   const filtroActivo = esEstadoCategoria(estadoParam) ? estadoParam : null;
+  const rutaDashboard = await obtenerRutaDashboardServidor();
 
   const { data: pedidos, error } = await supabase
     .from("pedidos")
@@ -155,7 +157,7 @@ export default async function PedidosPage({
     return (
       <main className="min-h-screen bg-zinc-100 p-8">
         <Link
-          href="/dashboard"
+          href={rutaDashboard}
           className="mb-6 inline-block text-sm text-zinc-500 hover:text-zinc-900"
         >
           ← Volver al Dashboard
@@ -181,7 +183,7 @@ export default async function PedidosPage({
   return (
     <main className="min-h-screen bg-zinc-100 p-8">
       <Link
-        href="/dashboard"
+        href={rutaDashboard}
         className="mb-6 inline-block text-sm text-zinc-500 hover:text-zinc-900"
       >
         ← Volver al Dashboard
