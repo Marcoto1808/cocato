@@ -14,7 +14,8 @@ import {
 } from "@/lib/pedido-calculo";
 import {
   cargarPreciosLista,
-  precioProductoEnLista,
+  combinarPreciosConCatalogo,
+  precioProductoParaPedido,
   resolverListaPrecioCliente,
   type ListaPrecioResuelta,
   type PreciosListaMap,
@@ -297,20 +298,24 @@ export default function NuevoPedidoForm() {
 
     if (listaError) {
       setError(listaError);
-      setListaResuelta(null);
-      setPreciosLista(new Map());
-      setCargandoLista(false);
-      return;
     }
 
     setListaResuelta(lista);
 
-    const precios = await cargarPreciosLista(
-      lista?.id ?? null,
-      productos.map((p) => ({ id: p.id, precio_kg: p.precio_kg }))
-    );
+    try {
+      const preciosLista = lista
+        ? await cargarPreciosLista(lista.id)
+        : new Map<string, number>();
+      setPreciosLista(combinarPreciosConCatalogo(preciosLista, productos));
+    } catch (cargaError) {
+      const mensaje =
+        cargaError instanceof Error
+          ? cargaError.message
+          : "Error al cargar la lista de precios.";
+      setError(mensaje);
+      setPreciosLista(combinarPreciosConCatalogo(new Map(), productos));
+    }
 
-    setPreciosLista(precios);
     setCargandoLista(false);
   }
 
@@ -344,11 +349,7 @@ export default function NuevoPedidoForm() {
 
     setError(null);
 
-    const precioLista = precioProductoEnLista(
-      preciosLista,
-      producto.id,
-      producto.precio_kg
-    );
+    const precioLista = precioProductoParaPedido(preciosLista, producto);
 
     const lineaExistente = lineas.find(
       (linea) =>
@@ -591,7 +592,7 @@ export default function NuevoPedidoForm() {
                     ? "Cargando..."
                     : listaResuelta
                       ? `${listaResuelta.nombre}${listaResuelta.esOverride ? " (asignada al cliente)" : " (vigente)"}`
-                      : "Precio de referencia del catálogo"}
+                      : "Sin lista vigente — publica un Balance"}
                 </dd>
               </div>
             </dl>
@@ -666,10 +667,9 @@ export default function NuevoPedidoForm() {
               productosCombobox.length > 0 ? (
                 <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
                   {productosCombobox.map((producto) => {
-                    const precio = precioProductoEnLista(
+                    const precio = precioProductoParaPedido(
                       preciosLista,
-                      producto.id,
-                      producto.precio_kg
+                      producto
                     );
                     return (
                       <li key={producto.id}>

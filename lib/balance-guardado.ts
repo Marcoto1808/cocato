@@ -70,20 +70,40 @@ function guardarListaPublicadaLocal(lista: ListaPreciosPublicadaLocal) {
   escribirJson(CLAVE_LISTA_PUBLICADA, lista);
 }
 
+export function preciosAnterioresDesdePreciosGuardados(
+  precios: PreciosState
+): PreciosAnterioresState {
+  return PRODUCTOS_BALANCE.reduce(
+    (acc, producto) => {
+      acc[producto.id] = {
+        precio: precios[producto.id]?.precioNuevo ?? "",
+      };
+      return acc;
+    },
+    {} as PreciosAnterioresState
+  );
+}
+
 /** Guarda los precios del balance actual (local por ahora; Supabase después). */
 export async function guardarPreciosBalance(
-  borrador: BalanceBorradorLocal,
-  opciones?: { esPrimerBalance?: boolean }
-): Promise<void> {
+  borrador: BalanceBorradorLocal
+): Promise<{ actualizadoEn: string }> {
+  const actualizadoEn = new Date().toISOString();
+  const preciosAnteriores = preciosAnterioresDesdePreciosGuardados(
+    borrador.preciosGuardados
+  );
+
   await new Promise((resolve) => setTimeout(resolve, 300));
+
   escribirBorrador({
     ...borrador,
-    actualizadoEn: new Date().toISOString(),
+    preciosAnteriores,
+    actualizadoEn,
   });
 
-  if (opciones?.esPrimerBalance) {
-    guardarPreciosAnterioresLocal(borrador.preciosAnteriores);
-  }
+  guardarPreciosAnterioresLocal(preciosAnteriores);
+
+  return { actualizadoEn };
 }
 
 /** Guarda el borrador completo del balance (local por ahora; Supabase después). */
@@ -97,17 +117,41 @@ export async function guardarBorradorBalance(
   });
 }
 
-/** Publica el balance como lista vigente (local por ahora; Supabase después). */
+/** Publica el balance en Supabase y persiste la base local para el siguiente ciclo. */
 export async function publicarBalance(
   borrador: BalanceBorradorLocal,
-  precioCanal: number | null
-): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 400));
+  precioCanal: number | null,
+  opciones?: { publicadoPorId?: string | null }
+): Promise<{ publicadoEn: string }> {
+  const { publicarBalanceEnSupabase, PublicacionBalanceError } = await import(
+    "@/lib/balance-publicacion"
+  );
 
-  const publicadoEn = new Date().toISOString();
+  const preciosAnteriores = preciosAnterioresDesdePreciosGuardados(
+    borrador.preciosGuardados
+  );
+
+  let publicadoEn: string;
+
+  try {
+    const resultado = await publicarBalanceEnSupabase(
+      borrador,
+      precioCanal,
+      opciones
+    );
+    publicadoEn = resultado.publicadoEn;
+  } catch (error) {
+    if (error instanceof PublicacionBalanceError) {
+      throw error;
+    }
+    throw new PublicacionBalanceError(
+      "No se pudo publicar el balance. Intenta de nuevo."
+    );
+  }
 
   escribirBorrador({
     ...borrador,
+    preciosAnteriores,
     actualizadoEn: publicadoEn,
   });
 
@@ -116,6 +160,9 @@ export async function publicarBalance(
     precioCanal,
     publicadoEn,
   });
+  guardarPreciosAnterioresLocal(preciosAnteriores);
+
+  return { publicadoEn };
 }
 
 export function cargarBorradorBalanceLocal(): BalanceBorradorLocal | null {
@@ -125,13 +172,5 @@ export function cargarBorradorBalanceLocal(): BalanceBorradorLocal | null {
 export function preciosAnterioresDesdeListaPublicada(
   lista: ListaPreciosPublicadaLocal
 ): PreciosAnterioresState {
-  return PRODUCTOS_BALANCE.reduce(
-    (acc, producto) => {
-      acc[producto.id] = {
-        precio: lista.precios[producto.id]?.precioNuevo ?? "",
-      };
-      return acc;
-    },
-    {} as PreciosAnterioresState
-  );
+  return preciosAnterioresDesdePreciosGuardados(lista.precios);
 }

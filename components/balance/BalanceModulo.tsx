@@ -8,10 +8,11 @@ import {
   cargarPreciosAnterioresGuardadosLocal,
   guardarBorradorBalance,
   guardarPreciosBalance,
-  preciosAnterioresDesdeListaPublicada,
+  preciosAnterioresDesdePreciosGuardados,
   publicarBalance,
   type BalanceBorradorLocal,
 } from "@/lib/balance-guardado";
+import { PublicacionBalanceError } from "@/lib/balance-publicacion";
 import {
   ETIQUETAS_INDICADOR,
   PASOS_BALANCE,
@@ -198,6 +199,17 @@ function TarjetaResultado({
   );
 }
 
+function formatearUltimaActualizacion(iso: string | null): string {
+  if (!iso) {
+    return "Sin publicar";
+  }
+
+  return new Date(iso).toLocaleString("es-MX", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
 export default function BalanceModulo() {
   const indicePrecios = indicePasoPrecios();
 
@@ -241,6 +253,9 @@ export default function BalanceModulo() {
   const [composicionExpandida, setComposicionExpandida] = useState<
     "capote" | "subproductos" | null
   >(null);
+  const [ultimaActualizacion, setUltimaActualizacion] = useState<string | null>(
+    null
+  );
 
   const costoTotalManual = useRef(false);
   const capoteRealManual = useRef(false);
@@ -403,33 +418,45 @@ export default function BalanceModulo() {
     historialInicializado.current = true;
 
     const listaPublicada = cargarListaPreciosPublicadaLocal();
-    if (listaPublicada) {
-      setPreciosAnteriores(
-        preciosAnterioresDesdeListaPublicada(listaPublicada)
-      );
-      setPrecioCanalAnteriorPublicado(listaPublicada.precioCanal);
-      setTieneHistorialPublicado(true);
-      return;
-    }
-
-    const anterioresGuardados = cargarPreciosAnterioresGuardadosLocal();
-    if (anterioresGuardados) {
-      setPreciosAnteriores(anterioresGuardados);
-    }
-
     const borrador = cargarBorradorBalanceLocal();
-    if (borrador && !listaPublicada) {
+
+    if (borrador) {
       setCompra(borrador.compra);
       setCostoTotal(borrador.costoTotal);
       setRendimiento(borrador.rendimiento);
       setCapoteReal(borrador.capoteReal);
       setRendimientoParaPrecios(borrador.rendimientoParaPrecios);
       setCapoteRealParaPrecios(borrador.capoteRealParaPrecios);
+    }
+
+    if (listaPublicada) {
+      const preciosBase = clonarPrecios(listaPublicada.precios);
+      setPreciosAnteriores(
+        preciosAnterioresDesdePreciosGuardados(preciosBase)
+      );
+      setPrecios(preciosBase);
+      setPreciosGuardados(preciosBase);
+      setPrecioCanalAnteriorPublicado(listaPublicada.precioCanal);
+      setUltimaActualizacion(listaPublicada.publicadoEn);
+      setTieneHistorialPublicado(true);
+    } else if (borrador) {
       setPreciosAnteriores(
         borrador.preciosAnteriores ?? crearPreciosAnterioresInicial()
       );
       setPrecios(borrador.preciosGuardados);
       setPreciosGuardados(borrador.preciosGuardados);
+      if (borrador.actualizadoEn) {
+        setUltimaActualizacion(borrador.actualizadoEn);
+      }
+      if (borrador.preciosAnteriores) {
+        setTieneHistorialPublicado(true);
+      }
+    } else {
+      const anterioresGuardados = cargarPreciosAnterioresGuardadosLocal();
+      if (anterioresGuardados) {
+        setPreciosAnteriores(anterioresGuardados);
+        setTieneHistorialPublicado(true);
+      }
     }
   }, []);
 
@@ -519,19 +546,22 @@ export default function BalanceModulo() {
     setMensajePreciosGuardados(null);
 
     try {
-      const anterioresNormalizados =
-        normalizarPreciosAnterioresEnteros(preciosAnteriores);
-      setPreciosAnteriores(anterioresNormalizados);
-
       const normalizados = normalizarPreciosEnteros(precios);
-      setPrecios(normalizados);
-
       const guardados = clonarPrecios(normalizados);
-      setPreciosGuardados(guardados);
+      const nuevosAnteriores = normalizarPreciosAnterioresEnteros(
+        preciosAnterioresDesdePreciosGuardados(guardados)
+      );
 
-      await guardarPreciosBalance(crearBorradorActual(guardados), {
-        esPrimerBalance: !tieneHistorialPublicado,
+      const { actualizadoEn } = await guardarPreciosBalance({
+        ...crearBorradorActual(guardados),
+        preciosAnteriores: nuevosAnteriores,
       });
+
+      setPrecios(normalizados);
+      setPreciosGuardados(guardados);
+      setPreciosAnteriores(nuevosAnteriores);
+      setTieneHistorialPublicado(true);
+      setUltimaActualizacion(actualizadoEn);
 
       const nuevosResultados = resultadosCalculadosAString(
         calcularResultadosBalance(
@@ -587,20 +617,35 @@ export default function BalanceModulo() {
           rendimientoParaPrecios
         );
 
-      await publicarBalance(crearBorradorActual(), canalPublicado);
-
-      setPrecioCanalAnteriorPublicado(canalPublicado);
-      setPreciosAnteriores(
-        preciosAnterioresDesdeListaPublicada({
-          precios: clonarPrecios(preciosGuardados),
-          precioCanal: canalPublicado,
-          publicadoEn: new Date().toISOString(),
-        })
+      const preciosPublicar = normalizarPreciosEnteros(
+        hayCambiosSinGuardar ? precios : preciosGuardados
       );
+      const guardados = clonarPrecios(preciosPublicar);
+      const nuevosAnteriores = normalizarPreciosAnterioresEnteros(
+        preciosAnterioresDesdePreciosGuardados(guardados)
+      );
+
+      const { publicadoEn } = await publicarBalance(
+        {
+          ...crearBorradorActual(guardados),
+          preciosAnteriores: nuevosAnteriores,
+        },
+        canalPublicado
+      );
+
+      setPrecios(guardados);
+      setPreciosGuardados(guardados);
+      setPreciosAnteriores(nuevosAnteriores);
+      setPrecioCanalAnteriorPublicado(canalPublicado);
       setTieneHistorialPublicado(true);
+      setUltimaActualizacion(publicadoEn);
       setMensajePublicacion("Balance publicado correctamente.");
-    } catch {
-      setMensajePublicacion("No se pudo publicar el balance. Intenta de nuevo.");
+    } catch (error) {
+      const mensaje =
+        error instanceof PublicacionBalanceError
+          ? error.message
+          : "No se pudo publicar el balance. Intenta de nuevo.";
+      setMensajePublicacion(mensaje);
     } finally {
       setGuardandoPublicacion(false);
     }
@@ -707,7 +752,9 @@ export default function BalanceModulo() {
 
           <div className="mt-5 rounded-lg bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
             <p className="font-medium text-zinc-700">Última actualización:</p>
-            <p className="mt-1 text-zinc-500">Sin publicar</p>
+            <p className="mt-1 text-zinc-500">
+              {formatearUltimaActualizacion(ultimaActualizacion)}
+            </p>
           </div>
 
           <div className="mt-4 space-y-2 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
