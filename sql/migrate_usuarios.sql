@@ -1,12 +1,23 @@
--- COCATO: esquema definitivo de usuarios (instalaciones nuevas)
--- Si ya existe una tabla usuarios legacy, ejecuta primero:
---   sql/migrate_usuarios.sql
--- Después ejecuta:
---   sql/policies_usuarios.sql
+-- COCATO: migración definitiva de usuarios
+-- Reemplaza la tabla legacy por el esquema final.
+--
+-- Orden de ejecución en Supabase SQL Editor:
+--   1. sql/migrate_usuarios.sql   (este archivo)
+--   2. sql/policies_usuarios.sql
+--
+-- Usuarios creados:
+--   marco  / 180898  (Administrador)
+--   arturo / 12345   (Trabajador)
+
+BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 
-CREATE TABLE IF NOT EXISTS public.usuarios (
+-- Eliminar autenticación y tabla anterior (legacy)
+DROP FUNCTION IF EXISTS public.verificar_login(TEXT, TEXT);
+DROP TABLE IF EXISTS public.usuarios CASCADE;
+
+CREATE TABLE public.usuarios (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   nombre TEXT NOT NULL,
   usuario TEXT NOT NULL UNIQUE,
@@ -17,9 +28,9 @@ CREATE TABLE IF NOT EXISTS public.usuarios (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_usuarios_usuario ON public.usuarios (usuario);
-CREATE INDEX IF NOT EXISTS idx_usuarios_activo ON public.usuarios (activo);
-CREATE INDEX IF NOT EXISTS idx_usuarios_rol ON public.usuarios (rol);
+CREATE INDEX idx_usuarios_usuario ON public.usuarios (usuario);
+CREATE INDEX idx_usuarios_activo ON public.usuarios (activo);
+CREATE INDEX idx_usuarios_rol ON public.usuarios (rol);
 
 COMMENT ON TABLE public.usuarios IS 'Usuarios internos de COCATO';
 COMMENT ON COLUMN public.usuarios.password_hash IS 'Hash bcrypt generado con pgcrypto crypt()';
@@ -83,11 +94,9 @@ VALUES
     extensions.crypt('12345', extensions.gen_salt('bf')),
     'Trabajador',
     true
-  )
-ON CONFLICT (usuario) DO UPDATE
-SET
-  nombre = EXCLUDED.nombre,
-  correo = EXCLUDED.correo,
-  password_hash = EXCLUDED.password_hash,
-  rol = EXCLUDED.rol,
-  activo = EXCLUDED.activo;
+  );
+
+COMMIT;
+
+-- Verificación opcional (debe devolver 2 filas):
+-- SELECT usuario, rol, activo FROM public.usuarios ORDER BY usuario;
