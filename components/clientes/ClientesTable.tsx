@@ -38,7 +38,7 @@ export default function ClientesTable({ clientes, sinResultados }: Props) {
               Negocio
             </th>
             <th className="p-3 text-left text-sm font-medium text-zinc-600">
-              Contacto
+              Nombre del dueño
             </th>
             <th className="p-3 text-left text-sm font-medium text-zinc-600">
               WhatsApp

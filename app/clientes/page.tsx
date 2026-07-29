@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import ClientesTable from "@/components/clientes/ClientesTable";
@@ -9,7 +8,7 @@ import VolverAlDashboardLink from "@/components/navegacion/VolverAlDashboardLink
 
 function formatearErrorSupabase(error: PostgrestError | null): string {
   if (!error) {
-    return "Sin respuesta de Supabase (insert sin data).";
+    return "Sin respuesta de Supabase.";
   }
 
   return [
@@ -22,15 +21,30 @@ function formatearErrorSupabase(error: PostgrestError | null): string {
     .join(" | ");
 }
 
+type TipoCliente = {
+  id: string;
+  nombre: string;
+};
+
+type ListaPrecio = {
+  id: string;
+  nombre: string;
+  tipo_cliente_id: string;
+  es_vigente: boolean;
+};
+
 type Cliente = {
   id: string;
   nombre_negocio: string;
   propietario: string | null;
-  whatsapp: string | null;
   telefono: string | null;
+  whatsapp: string | null;
   direccion: string | null;
-  maps_url: string | null;
-  observaciones: string | null;
+  tipo_cliente_id: string;
+  lista_precio_id: string | null;
+  dias_visita: string[];
+  activo: boolean;
+  tipos_cliente: TipoCliente | TipoCliente[] | null;
 };
 
 type FormularioCliente = {
@@ -39,9 +53,21 @@ type FormularioCliente = {
   telefono: string;
   whatsapp: string;
   direccion: string;
-  maps_url: string;
-  observaciones: string;
+  tipo_cliente_id: string;
+  lista_precio_id: string;
+  dias_visita: string[];
+  activo: boolean;
 };
+
+const DIAS_SEMANA = [
+  { codigo: "lunes", etiqueta: "Lunes" },
+  { codigo: "martes", etiqueta: "Martes" },
+  { codigo: "miercoles", etiqueta: "Miércoles" },
+  { codigo: "jueves", etiqueta: "Jueves" },
+  { codigo: "viernes", etiqueta: "Viernes" },
+  { codigo: "sabado", etiqueta: "Sábado" },
+  { codigo: "domingo", etiqueta: "Domingo" },
+] as const;
 
 const FORMULARIO_VACIO: FormularioCliente = {
   nombre_negocio: "",
@@ -49,51 +75,64 @@ const FORMULARIO_VACIO: FormularioCliente = {
   telefono: "",
   whatsapp: "",
   direccion: "",
-  maps_url: "",
-  observaciones: "",
+  tipo_cliente_id: "",
+  lista_precio_id: "",
+  dias_visita: [],
+  activo: true,
 };
 
-// Deben coincidir con public.clientes en Supabase.
 const COLUMNAS_CLIENTE =
-  "id, nombre_negocio, propietario, telefono, whatsapp, direccion, maps_url, observaciones";
+  "id, nombre_negocio, propietario, telefono, whatsapp, direccion, tipo_cliente_id, lista_precio_id, dias_visita, activo, tipos_cliente(nombre)";
 
-const COLUMNAS_INSERT = [
-  "nombre_negocio",
-  "propietario",
-  "telefono",
-  "whatsapp",
-  "direccion",
-  "maps_url",
-  "observaciones",
-] as const;
+function resolverTipoCliente(
+  tipos: TipoCliente | TipoCliente[] | null | undefined
+): TipoCliente | null {
+  if (!tipos) return null;
+  return Array.isArray(tipos) ? (tipos[0] ?? null) : tipos;
+}
 
 export default function ClientesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [tiposCliente, setTiposCliente] = useState<TipoCliente[]>([]);
+  const [listasPrecio, setListasPrecio] = useState<ListaPrecio[]>([]);
   const [busqueda, setBusqueda] = useState("");
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mensajeExito, setMensajeExito] = useState<string | null>(null);
   const [modalAbierto, setModalAbierto] = useState(false);
+  const [listaPersonalizada, setListaPersonalizada] = useState(false);
   const [formulario, setFormulario] =
     useState<FormularioCliente>(FORMULARIO_VACIO);
 
   useEffect(() => {
-    cargarClientes();
+    cargarDatos();
   }, []);
 
-  async function cargarClientes() {
+  async function cargarDatos() {
     setCargando(true);
     setError(null);
 
-    const { data, error: queryError } = await supabase
-      .from("clientes")
-      .select(COLUMNAS_CLIENTE)
-      .order("nombre_negocio");
+    const [clientesRes, tiposRes, listasRes] = await Promise.all([
+      supabase
+        .from("clientes")
+        .select(COLUMNAS_CLIENTE)
+        .order("nombre_negocio"),
+      supabase
+        .from("tipos_cliente")
+        .select("id, nombre")
+        .eq("activo", true)
+        .order("orden"),
+      supabase
+        .from("listas_precio")
+        .select("id, nombre, tipo_cliente_id, es_vigente")
+        .order("nombre"),
+    ]);
 
-    if (queryError) {
-      console.error("[clientes] select error:", queryError);
-      console.error("[clientes] select columnas:", COLUMNAS_CLIENTE);
+    if (clientesRes.error || tiposRes.error || listasRes.error) {
+      const queryError =
+        clientesRes.error ?? tiposRes.error ?? listasRes.error ?? null;
+      console.error("[clientes] load error:", queryError);
       setError(
         `No se pudieron cargar los clientes. ${formatearErrorSupabase(queryError)}`
       );
@@ -101,28 +140,65 @@ export default function ClientesPage() {
       return;
     }
 
-    setClientes((data ?? []) as Cliente[]);
+    setClientes(
+      ((clientesRes.data ?? []) as Cliente[]).map((cliente) => ({
+        ...cliente,
+        dias_visita: cliente.dias_visita ?? [],
+      }))
+    );
+    setTiposCliente((tiposRes.data ?? []) as TipoCliente[]);
+    setListasPrecio((listasRes.data ?? []) as ListaPrecio[]);
     setCargando(false);
   }
 
+  const listasFiltradas = useMemo(() => {
+    if (!formulario.tipo_cliente_id) return [];
+    return listasPrecio.filter(
+      (lista) => lista.tipo_cliente_id === formulario.tipo_cliente_id
+    );
+  }, [formulario.tipo_cliente_id, listasPrecio]);
+
   function abrirModalNuevo() {
-    setFormulario(FORMULARIO_VACIO);
+    setFormulario({
+      ...FORMULARIO_VACIO,
+      tipo_cliente_id: tiposCliente[0]?.id ?? "",
+    });
+    setListaPersonalizada(false);
     setError(null);
     setModalAbierto(true);
   }
 
   function cerrarModal() {
     setModalAbierto(false);
+    setListaPersonalizada(false);
     setFormulario(FORMULARIO_VACIO);
+  }
+
+  function alternarDiaVisita(codigo: string) {
+    setFormulario((prev) => {
+      const seleccionado = prev.dias_visita.includes(codigo);
+      return {
+        ...prev,
+        dias_visita: seleccionado
+          ? prev.dias_visita.filter((dia) => dia !== codigo)
+          : [...prev.dias_visita, codigo],
+      };
+    });
   }
 
   async function guardarCliente(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const nombre_negocio = formulario.nombre_negocio.trim();
+    const tipo_cliente_id = formulario.tipo_cliente_id.trim();
 
     if (!nombre_negocio) {
       setError("El nombre del negocio es obligatorio.");
+      return;
+    }
+
+    if (!tipo_cliente_id) {
+      setError("Selecciona un tipo de cliente.");
       return;
     }
 
@@ -136,42 +212,23 @@ export default function ClientesPage() {
       telefono: formulario.telefono.trim() || null,
       whatsapp: formulario.whatsapp.trim() || null,
       direccion: formulario.direccion.trim() || null,
-      maps_url: formulario.maps_url.trim() || null,
-      observaciones: formulario.observaciones.trim() || null,
+      tipo_cliente_id,
+      lista_precio_id:
+        listaPersonalizada && formulario.lista_precio_id.trim()
+          ? formulario.lista_precio_id.trim()
+          : null,
+      dias_visita: formulario.dias_visita,
+      activo: formulario.activo,
     };
 
-    console.log("[clientes] insert payload:", payload);
-    console.log("[clientes] insert columnas enviadas:", COLUMNAS_INSERT);
+    const { data, error: insertError } = await supabase
+      .from("clientes")
+      .insert(payload)
+      .select(COLUMNAS_CLIENTE)
+      .single();
 
-    let nuevoCliente: Cliente | null = null;
-    let insertError: PostgrestError | null = null;
-
-    try {
-      const resultado = await supabase
-        .from("clientes")
-        .insert(payload)
-        .select(COLUMNAS_CLIENTE)
-        .single();
-
-      nuevoCliente = (resultado.data as Cliente | null) ?? null;
-      insertError = resultado.error;
-    } catch (caught) {
-      console.error("[clientes] insert exception:", caught);
-      setError(
-        `No se pudo guardar el cliente. Excepción: ${
-          caught instanceof Error ? caught.message : String(caught)
-        }`
-      );
-      setGuardando(false);
-      return;
-    }
-
-    if (insertError || !nuevoCliente) {
-      console.error("[clientes] insert error.code:", insertError?.code);
-      console.error("[clientes] insert error.message:", insertError?.message);
-      console.error("[clientes] insert error.details:", insertError?.details);
-      console.error("[clientes] insert error.hint:", insertError?.hint);
-      console.error("[clientes] insert data:", nuevoCliente);
+    if (insertError || !data) {
+      console.error("[clientes] insert error:", insertError);
       setError(
         `No se pudo guardar el cliente. ${formatearErrorSupabase(insertError)}`
       );
@@ -180,7 +237,7 @@ export default function ClientesPage() {
     }
 
     setClientes((prev) =>
-      [...prev, nuevoCliente as Cliente].sort((a, b) =>
+      [...prev, data as Cliente].sort((a, b) =>
         a.nombre_negocio.localeCompare(b.nombre_negocio, "es")
       )
     );
@@ -196,18 +253,17 @@ export default function ClientesPage() {
     if (!termino) return clientes;
 
     return clientes.filter((cliente) => {
+      const tipo = resolverTipoCliente(cliente.tipos_cliente);
       const campos = [
         cliente.nombre_negocio,
         cliente.propietario,
         cliente.telefono,
         cliente.whatsapp,
         cliente.direccion,
-        cliente.observaciones,
+        tipo?.nombre,
       ];
 
-      return campos.some((campo) =>
-        campo?.toLowerCase().includes(termino)
-      );
+      return campos.some((campo) => campo?.toLowerCase().includes(termino));
     });
   }, [clientes, busqueda]);
 
@@ -272,156 +328,249 @@ export default function ClientesPage() {
               </div>
             )}
 
-            <form onSubmit={guardarCliente} className="mt-6 space-y-4">
-              <div>
-                <label
-                  htmlFor="nombre_negocio"
-                  className="block text-sm font-medium text-zinc-700"
-                >
-                  Nombre del negocio
-                </label>
-                <input
-                  id="nombre_negocio"
-                  type="text"
-                  required
-                  value={formulario.nombre_negocio}
-                  onChange={(event) =>
-                    setFormulario({
-                      ...formulario,
-                      nombre_negocio: event.target.value,
-                    })
-                  }
-                  className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                />
-              </div>
+            <form onSubmit={guardarCliente} className="mt-6 space-y-5">
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+                  Información general
+                </h3>
 
-              <div>
-                <label
-                  htmlFor="propietario"
-                  className="block text-sm font-medium text-zinc-700"
-                >
-                  Nombre del contacto
-                </label>
-                <input
-                  id="propietario"
-                  type="text"
-                  value={formulario.propietario}
-                  onChange={(event) =>
-                    setFormulario({
-                      ...formulario,
-                      propietario: event.target.value,
-                    })
-                  }
-                  className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                />
-              </div>
+                <div>
+                  <label
+                    htmlFor="nombre_negocio"
+                    className="block text-sm font-medium text-zinc-700"
+                  >
+                    Nombre del negocio
+                  </label>
+                  <input
+                    id="nombre_negocio"
+                    type="text"
+                    required
+                    value={formulario.nombre_negocio}
+                    onChange={(event) =>
+                      setFormulario({
+                        ...formulario,
+                        nombre_negocio: event.target.value,
+                      })
+                    }
+                    className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  />
+                </div>
 
-              <div>
-                <label
-                  htmlFor="telefono"
-                  className="block text-sm font-medium text-zinc-700"
-                >
-                  Teléfono
-                </label>
-                <input
-                  id="telefono"
-                  type="text"
-                  value={formulario.telefono}
-                  onChange={(event) =>
-                    setFormulario({
-                      ...formulario,
-                      telefono: event.target.value,
-                    })
-                  }
-                  className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                />
-              </div>
+                <div>
+                  <label
+                    htmlFor="propietario"
+                    className="block text-sm font-medium text-zinc-700"
+                  >
+                    Nombre del dueño
+                  </label>
+                  <input
+                    id="propietario"
+                    type="text"
+                    value={formulario.propietario}
+                    onChange={(event) =>
+                      setFormulario({
+                        ...formulario,
+                        propietario: event.target.value,
+                      })
+                    }
+                    className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  />
+                </div>
 
-              <div>
-                <label
-                  htmlFor="whatsapp"
-                  className="block text-sm font-medium text-zinc-700"
-                >
-                  WhatsApp
-                </label>
-                <input
-                  id="whatsapp"
-                  type="text"
-                  value={formulario.whatsapp}
-                  onChange={(event) =>
-                    setFormulario({
-                      ...formulario,
-                      whatsapp: event.target.value,
-                    })
-                  }
-                  className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                />
-              </div>
+                <div>
+                  <label
+                    htmlFor="telefono"
+                    className="block text-sm font-medium text-zinc-700"
+                  >
+                    Teléfono
+                  </label>
+                  <input
+                    id="telefono"
+                    type="text"
+                    value={formulario.telefono}
+                    onChange={(event) =>
+                      setFormulario({
+                        ...formulario,
+                        telefono: event.target.value,
+                      })
+                    }
+                    className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  />
+                </div>
 
-              <div>
-                <label
-                  htmlFor="direccion"
-                  className="block text-sm font-medium text-zinc-700"
-                >
-                  Dirección
-                </label>
-                <textarea
-                  id="direccion"
-                  rows={3}
-                  value={formulario.direccion}
-                  onChange={(event) =>
-                    setFormulario({
-                      ...formulario,
-                      direccion: event.target.value,
-                    })
-                  }
-                  className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                />
-              </div>
+                <div>
+                  <label
+                    htmlFor="whatsapp"
+                    className="block text-sm font-medium text-zinc-700"
+                  >
+                    WhatsApp
+                  </label>
+                  <input
+                    id="whatsapp"
+                    type="text"
+                    value={formulario.whatsapp}
+                    onChange={(event) =>
+                      setFormulario({
+                        ...formulario,
+                        whatsapp: event.target.value,
+                      })
+                    }
+                    className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  />
+                </div>
 
-              <div>
-                <label
-                  htmlFor="maps_url"
-                  className="block text-sm font-medium text-zinc-700"
-                >
-                  URL de Google Maps{" "}
-                  <span className="font-normal text-zinc-400">(opcional)</span>
-                </label>
-                <input
-                  id="maps_url"
-                  type="text"
-                  placeholder="https://maps.google.com/..."
-                  value={formulario.maps_url}
-                  onChange={(event) =>
-                    setFormulario({
-                      ...formulario,
-                      maps_url: event.target.value,
-                    })
-                  }
-                  className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                />
-              </div>
+                <div>
+                  <label
+                    htmlFor="direccion"
+                    className="block text-sm font-medium text-zinc-700"
+                  >
+                    Dirección
+                  </label>
+                  <textarea
+                    id="direccion"
+                    rows={3}
+                    value={formulario.direccion}
+                    onChange={(event) =>
+                      setFormulario({
+                        ...formulario,
+                        direccion: event.target.value,
+                      })
+                    }
+                    className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  />
+                </div>
 
-              <div>
-                <label
-                  htmlFor="observaciones"
-                  className="block text-sm font-medium text-zinc-700"
-                >
-                  Observaciones
+                <div>
+                  <label
+                    htmlFor="tipo_cliente_id"
+                    className="block text-sm font-medium text-zinc-700"
+                  >
+                    Tipo de cliente
+                  </label>
+                  <select
+                    id="tipo_cliente_id"
+                    required
+                    value={formulario.tipo_cliente_id}
+                    onChange={(event) => {
+                      setListaPersonalizada(false);
+                      setFormulario({
+                        ...formulario,
+                        tipo_cliente_id: event.target.value,
+                        lista_precio_id: "",
+                      });
+                    }}
+                    className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  >
+                    <option value="">Seleccionar tipo...</option>
+                    {tiposCliente.map((tipo) => (
+                      <option key={tipo.id} value={tipo.id}>
+                        {tipo.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  {!listaPersonalizada ? (
+                    <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3">
+                      <p className="text-sm text-zinc-700">
+                        <span className="font-medium text-zinc-900">
+                          Lista de precios:
+                        </span>{" "}
+                        {formulario.tipo_cliente_id
+                          ? "Automática (según el tipo de cliente)."
+                          : "Selecciona un tipo de cliente."}
+                      </p>
+                      {formulario.tipo_cliente_id ? (
+                        <button
+                          type="button"
+                          onClick={() => setListaPersonalizada(true)}
+                          className="mt-2 text-sm font-medium text-zinc-900 underline decoration-zinc-300 underline-offset-2 hover:decoration-zinc-900"
+                        >
+                          Usar una lista de precios diferente
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <label
+                        htmlFor="lista_precio_id"
+                        className="block text-sm font-medium text-zinc-700"
+                      >
+                        Lista de precios asignada
+                      </label>
+                      <select
+                        id="lista_precio_id"
+                        value={formulario.lista_precio_id}
+                        onChange={(event) =>
+                          setFormulario({
+                            ...formulario,
+                            lista_precio_id: event.target.value,
+                          })
+                        }
+                        className="block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                      >
+                        <option value="">Seleccionar lista...</option>
+                        {listasFiltradas.map((lista) => (
+                          <option key={lista.id} value={lista.id}>
+                            {lista.nombre}
+                            {lista.es_vigente ? " · vigente" : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setListaPersonalizada(false);
+                          setFormulario((prev) => ({
+                            ...prev,
+                            lista_precio_id: "",
+                          }));
+                        }}
+                        className="text-sm font-medium text-zinc-600 underline decoration-zinc-300 underline-offset-2 hover:text-zinc-900 hover:decoration-zinc-900"
+                      >
+                        Volver a lista automática
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <p className="block text-sm font-medium text-zinc-700">
+                    Días de visita
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {DIAS_SEMANA.map((dia) => (
+                      <label
+                        key={dia.codigo}
+                        className="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-700"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={formulario.dias_visita.includes(dia.codigo)}
+                          onChange={() => alternarDiaVisita(dia.codigo)}
+                          className="rounded border-zinc-300"
+                        />
+                        {dia.etiqueta}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2 text-sm text-zinc-700">
+                  <input
+                    type="checkbox"
+                    checked={formulario.activo}
+                    onChange={(event) =>
+                      setFormulario({
+                        ...formulario,
+                        activo: event.target.checked,
+                      })
+                    }
+                    className="rounded border-zinc-300"
+                  />
+                  Cliente activo
                 </label>
-                <textarea
-                  id="observaciones"
-                  rows={3}
-                  placeholder="Horarios de entrega, preferencias, etc."
-                  value={formulario.observaciones}
-                  onChange={(event) =>
-                    setFormulario({
-                      ...formulario,
-                      observaciones: event.target.value,
-                    })
-                  }
-                  className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                />
               </div>
 
               <div className="flex justify-end gap-3 pt-2">
