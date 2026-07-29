@@ -43,6 +43,13 @@ export const PRODUCTOS_BALANCE = [
 
 export type ProductoBalanceId = (typeof PRODUCTOS_BALANCE)[number]["id"];
 
+export const PRODUCTOS_CAPOTE_IDS = [
+  "costilla",
+  "pierna",
+  "espaldilla",
+  "espinazo",
+] as const satisfies readonly ProductoBalanceId[];
+
 export type CompraDiaState = {
   fecha: string;
   numeroPuercos: string;
@@ -53,17 +60,16 @@ export type CompraDiaState = {
 
 export type RendimientoState = Record<ProductoBalanceId, string>;
 
-export type PreciosMercadoState = Record<
+export type PreciosState = Record<ProductoBalanceId, { precioNuevo: string }>;
+
+export type PreciosAnterioresState = Record<
   ProductoBalanceId,
-  { precioMercado: string; miPrecio: string }
+  { precio: string }
 >;
 
 export type ResultadosState = {
-  ventaTotal: string;
-  costoTotal: string;
   utilidadTotal: string;
   utilidadPorPuerco: string;
-  utilidadPorKilogramo: string;
   margen: string;
 };
 
@@ -72,9 +78,10 @@ export type ResultadosCalculados = {
   costoTotal: number | null;
   utilidadTotal: number | null;
   utilidadPorPuerco: number | null;
-  utilidadPorKilogramo: number | null;
   margen: number | null;
 };
+
+export type IndicadorResultado = "excelente" | "aceptable" | "revisar";
 
 export const PASOS_BALANCE = [
   {
@@ -88,14 +95,15 @@ export const PASOS_BALANCE = [
     descripcion: "Kilos obtenidos de cada producto después del despiece.",
   },
   {
-    id: "precios-mercado",
-    titulo: "Precios del mercado",
-    descripcion: "Compara el mercado con tus precios de venta propuestos.",
+    id: "precios",
+    titulo: "Precios",
+    descripcion:
+      "Revisa el precio anterior, el sugerido y define el precio nuevo de venta.",
   },
   {
     id: "resultados",
     titulo: "Resultados",
-    descripcion: "Indicadores del balance actualizados en tiempo real.",
+    descripcion: "Utilidad y margen del balance del día.",
   },
 ] as const;
 
@@ -117,23 +125,30 @@ export function crearRendimientoInicial(): RendimientoState {
   );
 }
 
-export function crearPreciosMercadoInicial(): PreciosMercadoState {
+export function crearPreciosInicial(): PreciosState {
   return PRODUCTOS_BALANCE.reduce(
     (acc, producto) => {
-      acc[producto.id] = { precioMercado: "", miPrecio: "" };
+      acc[producto.id] = { precioNuevo: "" };
       return acc;
     },
-    {} as PreciosMercadoState
+    {} as PreciosState
+  );
+}
+
+export function crearPreciosAnterioresInicial(): PreciosAnterioresState {
+  return PRODUCTOS_BALANCE.reduce(
+    (acc, producto) => {
+      acc[producto.id] = { precio: "" };
+      return acc;
+    },
+    {} as PreciosAnterioresState
   );
 }
 
 export function crearResultadosInicial(): ResultadosState {
   return {
-    ventaTotal: "",
-    costoTotal: "",
     utilidadTotal: "",
     utilidadPorPuerco: "",
-    utilidadPorKilogramo: "",
     margen: "",
   };
 }
@@ -145,22 +160,99 @@ export function parsearNumero(valor: string): number | null {
   return Number.isFinite(numero) ? numero : null;
 }
 
-export function formatearNumeroBalance(valor: number | null, decimales = 2): string {
+export function redondearPesos(valor: number | null): number | null {
+  if (valor === null) return null;
+  return Math.round(valor);
+}
+
+export function formatearNumeroBalance(
+  valor: number | null,
+  decimales = 2
+): string {
   if (valor === null) return "";
   return valor.toFixed(decimales).replace(/\.?0+$/, "");
 }
 
-export function calcularDiferenciaPrecio(
-  precioMercado: string,
-  miPrecio: string
-): number | null {
-  const mercado = parsearNumero(precioMercado);
-  const propio = parsearNumero(miPrecio);
-  if (mercado === null || propio === null) return null;
-  return propio - mercado;
+export function formatearPesosEnteros(valor: number | null): string {
+  if (valor === null) return "—";
+  return redondearPesos(valor)!.toLocaleString("es-MX", {
+    style: "currency",
+    currency: "MXN",
+    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+  });
 }
 
-export function sumarKilosRendimiento(rendimiento: RendimientoState): number | null {
+export function formatearPesosEnterosInput(valor: number | null): string {
+  if (valor === null) return "";
+  return String(redondearPesos(valor));
+}
+
+/** Nuevo precio de canal simulado a partir del costo y el capote real (mock UI). */
+export function calcularPrecioCanalNuevoEjemplo(
+  costoTotal: string,
+  capoteReal: string
+): number | null {
+  const costo = parsearNumero(costoTotal);
+  const capote = parsearNumero(capoteReal);
+
+  if (costo === null || capote === null || capote <= 0) return null;
+
+  return Math.round((costo / capote) * 1.35);
+}
+
+/** Precios sugeridos proporcionales al cambio del precio de canal. */
+export function calcularPreciosSugeridosDesdeCanal(
+  precioCanalNuevo: number | null,
+  precioCanalAnterior: number | null,
+  preciosAnteriores: Record<ProductoBalanceId, number | null>
+): Record<ProductoBalanceId, number | null> {
+  const factor =
+    precioCanalNuevo !== null &&
+    precioCanalAnterior !== null &&
+    precioCanalAnterior > 0
+      ? precioCanalNuevo / precioCanalAnterior
+      : null;
+
+  return PRODUCTOS_BALANCE.reduce(
+    (acc, producto) => {
+      const anterior = preciosAnteriores[producto.id];
+
+      if (anterior === null || factor === null) {
+        acc[producto.id] = null;
+        return acc;
+      }
+
+      acc[producto.id] = Math.round(anterior * factor);
+      return acc;
+    },
+    {} as Record<ProductoBalanceId, number | null>
+  );
+}
+
+export function calcularPrecioCanal(
+  preciosPorProducto: Record<ProductoBalanceId, number>,
+  rendimiento: RendimientoState
+): number | null {
+  let sumaPonderada = 0;
+  let totalKilos = 0;
+
+  for (const producto of PRODUCTOS_BALANCE) {
+    const kilos = parsearNumero(rendimiento[producto.id]);
+    const precio = preciosPorProducto[producto.id];
+
+    if (kilos !== null && kilos > 0) {
+      sumaPonderada += precio * kilos;
+      totalKilos += kilos;
+    }
+  }
+
+  return totalKilos > 0 ? Math.round(sumaPonderada / totalKilos) : null;
+}
+
+export function sumarKilosRendimiento(
+  rendimiento: RendimientoState
+): number | null {
   let total = 0;
   let tieneValor = false;
 
@@ -175,7 +267,26 @@ export function sumarKilosRendimiento(rendimiento: RendimientoState): number | n
   return tieneValor ? total : null;
 }
 
-export function calcularCostoTotalCompra(compra: CompraDiaState): number | null {
+export function calcularCapoteTotal(
+  rendimiento: RendimientoState
+): number | null {
+  let total = 0;
+  let tieneValor = false;
+
+  for (const id of PRODUCTOS_CAPOTE_IDS) {
+    const kilos = parsearNumero(rendimiento[id]);
+    if (kilos !== null) {
+      total += kilos;
+      tieneValor = true;
+    }
+  }
+
+  return tieneValor ? total : null;
+}
+
+export function calcularCostoTotalCompra(
+  compra: CompraDiaState
+): number | null {
   const kilos = parsearNumero(compra.kilosTotales);
   const precio = parsearNumero(compra.precioCompraKg);
   const gastos = parsearNumero(compra.gastosAdicionales) ?? 0;
@@ -187,20 +298,19 @@ export function calcularCostoTotalCompra(compra: CompraDiaState): number | null 
 
 export function calcularResultadosBalance(
   compra: CompraDiaState,
-  rendimiento: RendimientoState,
-  precios: PreciosMercadoState,
+  rendimientoSnapshot: RendimientoState,
+  precios: PreciosState,
   costoTotalManual: string
 ): ResultadosCalculados {
   const costoDesdeCompra = calcularCostoTotalCompra(compra);
-  const costoTotal =
-    parsearNumero(costoTotalManual) ?? costoDesdeCompra;
+  const costoTotal = parsearNumero(costoTotalManual) ?? costoDesdeCompra;
 
   let ventaTotal = 0;
   let tieneVenta = false;
 
   for (const producto of PRODUCTOS_BALANCE) {
-    const kilos = parsearNumero(rendimiento[producto.id]);
-    const precio = parsearNumero(precios[producto.id].miPrecio);
+    const kilos = parsearNumero(rendimientoSnapshot[producto.id]);
+    const precio = parsearNumero(precios[producto.id].precioNuevo);
 
     if (kilos !== null && precio !== null) {
       ventaTotal += kilos * precio;
@@ -218,14 +328,6 @@ export function calcularResultadosBalance(
       ? utilidadTotal / puercos
       : null;
 
-  const kilosRendimiento = sumarKilosRendimiento(rendimiento);
-  const kilosBase =
-    kilosRendimiento ?? parsearNumero(compra.kilosTotales);
-  const utilidadPorKilogramo =
-    utilidadTotal !== null && kilosBase !== null && kilosBase > 0
-      ? utilidadTotal / kilosBase
-      : null;
-
   const margen =
     utilidadTotal !== null && venta !== null && venta > 0
       ? (utilidadTotal / venta) * 100
@@ -236,7 +338,6 @@ export function calcularResultadosBalance(
     costoTotal,
     utilidadTotal,
     utilidadPorPuerco,
-    utilidadPorKilogramo,
     margen,
   };
 }
@@ -245,14 +346,116 @@ export function resultadosCalculadosAString(
   calculados: ResultadosCalculados
 ): ResultadosState {
   return {
-    ventaTotal: formatearNumeroBalance(calculados.ventaTotal),
-    costoTotal: formatearNumeroBalance(calculados.costoTotal),
-    utilidadTotal: formatearNumeroBalance(calculados.utilidadTotal),
-    utilidadPorPuerco: formatearNumeroBalance(calculados.utilidadPorPuerco),
-    utilidadPorKilogramo: formatearNumeroBalance(
-      calculados.utilidadPorKilogramo
-    ),
+    utilidadTotal: formatearPesosEnterosInput(calculados.utilidadTotal),
+    utilidadPorPuerco: formatearPesosEnterosInput(calculados.utilidadPorPuerco),
     margen:
-      calculados.margen === null ? "" : formatearNumeroBalance(calculados.margen, 1),
+      calculados.margen === null
+        ? ""
+        : formatearNumeroBalance(calculados.margen, 1),
   };
+}
+
+export function indicadorDesdeMargen(
+  margen: number | null
+): IndicadorResultado | null {
+  if (margen === null) return null;
+  if (margen >= 15) return "excelente";
+  if (margen >= 8) return "aceptable";
+  return "revisar";
+}
+
+export const ETIQUETAS_INDICADOR: Record<
+  IndicadorResultado,
+  { emoji: string; etiqueta: string; className: string }
+> = {
+  excelente: {
+    emoji: "🟢",
+    etiqueta: "Excelente",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-900",
+  },
+  aceptable: {
+    emoji: "🟡",
+    etiqueta: "Aceptable",
+    className: "border-amber-200 bg-amber-50 text-amber-900",
+  },
+  revisar: {
+    emoji: "🔴",
+    etiqueta: "Revisar precios",
+    className: "border-red-200 bg-red-50 text-red-900",
+  },
+};
+
+export function normalizarPreciosEnteros(precios: PreciosState): PreciosState {
+  return PRODUCTOS_BALANCE.reduce(
+    (acc, producto) => {
+      const valor = parsearNumero(precios[producto.id].precioNuevo);
+      acc[producto.id] = {
+        precioNuevo:
+          valor === null ? "" : formatearPesosEnterosInput(valor),
+      };
+      return acc;
+    },
+    {} as PreciosState
+  );
+}
+
+export function clonarPrecios(precios: PreciosState): PreciosState {
+  return PRODUCTOS_BALANCE.reduce(
+    (acc, producto) => {
+      acc[producto.id] = { ...precios[producto.id] };
+      return acc;
+    },
+    {} as PreciosState
+  );
+}
+
+export function clonarPreciosAnteriores(
+  precios: PreciosAnterioresState
+): PreciosAnterioresState {
+  return PRODUCTOS_BALANCE.reduce(
+    (acc, producto) => {
+      acc[producto.id] = { ...precios[producto.id] };
+      return acc;
+    },
+    {} as PreciosAnterioresState
+  );
+}
+
+export function normalizarPreciosAnterioresEnteros(
+  precios: PreciosAnterioresState
+): PreciosAnterioresState {
+  return PRODUCTOS_BALANCE.reduce(
+    (acc, producto) => {
+      const valor = parsearNumero(precios[producto.id].precio);
+      acc[producto.id] = {
+        precio: valor === null ? "" : formatearPesosEnterosInput(valor),
+      };
+      return acc;
+    },
+    {} as PreciosAnterioresState
+  );
+}
+
+export function preciosAnterioresComoNumeros(
+  precios: PreciosAnterioresState
+): Record<ProductoBalanceId, number | null> {
+  return PRODUCTOS_BALANCE.reduce(
+    (acc, producto) => {
+      acc[producto.id] = parsearNumero(precios[producto.id].precio);
+      return acc;
+    },
+    {} as Record<ProductoBalanceId, number | null>
+  );
+}
+
+export function tienePreciosAnterioresCompletos(
+  precios: PreciosAnterioresState
+): boolean {
+  return PRODUCTOS_BALANCE.every(
+    (producto) => parsearNumero(precios[producto.id].precio) !== null
+  );
+}
+
+export function indicePasoPrecios(): number {
+  return PASOS_BALANCE.findIndex((paso) => paso.id === "precios");
 }

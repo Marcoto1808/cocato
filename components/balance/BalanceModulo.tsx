@@ -2,23 +2,48 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import VolverAlDashboardLink from "@/components/navegacion/VolverAlDashboardLink";
-import { formatearMoneda } from "@/lib/dashboard-admin";
 import {
+  cargarBorradorBalanceLocal,
+  cargarListaPreciosPublicadaLocal,
+  cargarPreciosAnterioresGuardadosLocal,
+  guardarBorradorBalance,
+  guardarPreciosBalance,
+  preciosAnterioresDesdeListaPublicada,
+  publicarBalance,
+  type BalanceBorradorLocal,
+} from "@/lib/balance-guardado";
+import {
+  ETIQUETAS_INDICADOR,
   PASOS_BALANCE,
   PRODUCTOS_BALANCE,
+  calcularCapoteTotal,
   calcularCostoTotalCompra,
-  calcularDiferenciaPrecio,
+  calcularPrecioCanal,
+  calcularPrecioCanalNuevoEjemplo,
+  calcularPreciosSugeridosDesdeCanal,
   calcularResultadosBalance,
-  crearPreciosMercadoInicial,
+  clonarPrecios,
+  clonarPreciosAnteriores,
+  crearPreciosAnterioresInicial,
+  crearPreciosInicial,
   crearRendimientoInicial,
   crearResultadosInicial,
   fechaBalanceHoy,
   formatearNumeroBalance,
+  formatearPesosEnteros,
+  formatearPesosEnterosInput,
+  indicePasoPrecios,
+  indicadorDesdeMargen,
+  normalizarPreciosAnterioresEnteros,
+  normalizarPreciosEnteros,
   parsearNumero,
+  preciosAnterioresComoNumeros,
   resultadosCalculadosAString,
   sumarKilosRendimiento,
   type CompraDiaState,
-  type PreciosMercadoState,
+  type PreciosAnterioresState,
+  type PreciosState,
+  type ProductoBalanceId,
   type RendimientoState,
   type ResultadosState,
 } from "@/lib/balance";
@@ -91,49 +116,42 @@ function CampoCompra({
   );
 }
 
-function CampoResultado({
-  label,
-  htmlFor,
-  value,
-  onChange,
-  suffix,
+function TarjetaResumenCanal({
+  titulo,
+  valor,
 }: {
-  label: string;
-  htmlFor: string;
-  value: string;
-  onChange: (valor: string) => void;
-  suffix?: string;
+  titulo: string;
+  valor: string;
 }) {
   return (
     <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-      <label
-        htmlFor={htmlFor}
-        className="text-xs font-medium uppercase tracking-wide text-zinc-500"
-      >
-        {label}
-      </label>
-      <div className="mt-2 flex items-center gap-2">
-        <input
-          id={htmlFor}
-          type="number"
-          step="0.01"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          className={`${inputClass} text-lg font-bold tabular-nums`}
-          placeholder="0"
-        />
-        {suffix ? (
-          <span className="text-sm font-medium text-zinc-500">{suffix}</span>
-        ) : null}
-      </div>
+      <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+        {titulo}
+      </p>
+      <p className="mt-2 text-2xl font-bold tabular-nums text-zinc-900">
+        {valor}
+      </p>
     </div>
   );
 }
 
-function formatearDiferencia(diferencia: number | null): string {
-  if (diferencia === null) return "—";
-  const prefijo = diferencia > 0 ? "+" : "";
-  return `${prefijo}${formatearMoneda(diferencia)}`;
+function TarjetaResultado({
+  titulo,
+  valor,
+}: {
+  titulo: string;
+  valor: string;
+}) {
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+        {titulo}
+      </p>
+      <p className="mt-2 text-2xl font-bold tabular-nums text-zinc-900">
+        {valor}
+      </p>
+    </div>
+  );
 }
 
 function claseDiferencia(diferencia: number | null): string {
@@ -144,6 +162,8 @@ function claseDiferencia(diferencia: number | null): string {
 }
 
 export default function BalanceModulo() {
+  const indicePrecios = indicePasoPrecios();
+
   const [pasoActual, setPasoActual] = useState(0);
   const [compra, setCompra] = useState<CompraDiaState>({
     fecha: fechaBalanceHoy(),
@@ -156,31 +176,45 @@ export default function BalanceModulo() {
   const [rendimiento, setRendimiento] = useState<RendimientoState>(
     crearRendimientoInicial
   );
-  const [precios, setPrecios] = useState<PreciosMercadoState>(
-    crearPreciosMercadoInicial
-  );
+  const [capoteReal, setCapoteReal] = useState("");
+  const [rendimientoParaPrecios, setRendimientoParaPrecios] =
+    useState<RendimientoState>(crearRendimientoInicial);
+  const [capoteRealParaPrecios, setCapoteRealParaPrecios] = useState("");
+  const [precios, setPrecios] = useState<PreciosState>(crearPreciosInicial);
+  const [preciosAnteriores, setPreciosAnteriores] =
+    useState<PreciosAnterioresState>(crearPreciosAnterioresInicial);
+  const [preciosGuardados, setPreciosGuardados] =
+    useState<PreciosState>(crearPreciosInicial);
+  const [tieneHistorialPublicado, setTieneHistorialPublicado] = useState(false);
+  const [precioCanalAnteriorPublicado, setPrecioCanalAnteriorPublicado] =
+    useState<number | null>(null);
   const [resultados, setResultados] = useState<ResultadosState>(
     crearResultadosInicial
   );
+  const [guardandoPrecios, setGuardandoPrecios] = useState(false);
+  const [guardandoBorrador, setGuardandoBorrador] = useState(false);
+  const [guardandoPublicacion, setGuardandoPublicacion] = useState(false);
+  const [mensajePreciosGuardados, setMensajePreciosGuardados] = useState<
+    string | null
+  >(null);
+  const [mensajeBorrador, setMensajeBorrador] = useState<string | null>(null);
+  const [mensajePublicacion, setMensajePublicacion] = useState<string | null>(
+    null
+  );
 
   const costoTotalManual = useRef(false);
-  const resultadosManual = useRef<Partial<Record<keyof ResultadosState, boolean>>>(
-    {}
-  );
+  const capoteRealManual = useRef(false);
+  const preciosManual = useRef<Partial<Record<ProductoBalanceId, boolean>>>({});
+  const historialInicializado = useRef(false);
 
   const paso = PASOS_BALANCE[pasoActual];
   const esPrimerPaso = pasoActual === 0;
   const esUltimoPaso = pasoActual === PASOS_BALANCE.length - 1;
+  const enPreciosOPosterior = pasoActual >= indicePrecios;
 
   const costoCalculado = useMemo(
     () => calcularCostoTotalCompra(compra),
     [compra]
-  );
-
-  const calculados = useMemo(
-    () =>
-      calcularResultadosBalance(compra, rendimiento, precios, costoTotal),
-    [compra, rendimiento, precios, costoTotal]
   );
 
   const totalKilosRendimiento = useMemo(
@@ -188,15 +222,158 @@ export default function BalanceModulo() {
     [rendimiento]
   );
 
+  const capoteCalculado = useMemo(
+    () => calcularCapoteTotal(rendimiento),
+    [rendimiento]
+  );
+
+  const capoteParaPrecios = capoteRealParaPrecios || capoteReal;
+
+  const precioCanalNuevo = useMemo(
+    () => calcularPrecioCanalNuevoEjemplo(costoTotal, capoteParaPrecios),
+    [costoTotal, capoteParaPrecios]
+  );
+
+  const preciosAnterioresNumeros = useMemo(
+    () => preciosAnterioresComoNumeros(preciosAnteriores),
+    [preciosAnteriores]
+  );
+
+  const precioCanalAnterior = useMemo(() => {
+    if (tieneHistorialPublicado && precioCanalAnteriorPublicado !== null) {
+      return precioCanalAnteriorPublicado;
+    }
+
+    const mapaPrecios = PRODUCTOS_BALANCE.reduce(
+      (acc, producto) => {
+        const valor = preciosAnterioresNumeros[producto.id];
+        if (valor !== null) acc[producto.id] = valor;
+        return acc;
+      },
+      {} as Record<ProductoBalanceId, number>
+    );
+
+    return calcularPrecioCanal(mapaPrecios, rendimientoParaPrecios);
+  }, [
+    tieneHistorialPublicado,
+    precioCanalAnteriorPublicado,
+    preciosAnterioresNumeros,
+    rendimientoParaPrecios,
+  ]);
+
+  const preciosSugeridos = useMemo(
+    () =>
+      calcularPreciosSugeridosDesdeCanal(
+        precioCanalNuevo,
+        precioCanalAnterior,
+        preciosAnterioresNumeros
+      ),
+    [precioCanalNuevo, precioCanalAnterior, preciosAnterioresNumeros]
+  );
+
+  const calculados = useMemo(
+    () =>
+      calcularResultadosBalance(
+        compra,
+        rendimientoParaPrecios,
+        preciosGuardados,
+        costoTotal
+      ),
+    [compra.numeroPuercos, rendimientoParaPrecios, preciosGuardados, costoTotal]
+  );
+
+  const hayCambiosSinGuardar = useMemo(() => {
+    const borrador = normalizarPreciosEnteros(precios);
+    const guardados = normalizarPreciosEnteros(preciosGuardados);
+
+    return PRODUCTOS_BALANCE.some(
+      (producto) =>
+        borrador[producto.id].precioNuevo !== guardados[producto.id].precioNuevo
+    );
+  }, [precios, preciosGuardados]);
+
+  const precioCanalActual = useMemo(() => {
+    const preciosNuevos = PRODUCTOS_BALANCE.reduce(
+      (acc, producto) => {
+        const valor =
+          parsearNumero(precios[producto.id].precioNuevo) ??
+          preciosSugeridos[producto.id];
+        if (valor !== null) acc[producto.id] = valor;
+        return acc;
+      },
+      {} as Record<ProductoBalanceId, number>
+    );
+
+    return calcularPrecioCanal(preciosNuevos, rendimientoParaPrecios);
+  }, [precios, preciosSugeridos, rendimientoParaPrecios]);
+
+  const diferenciaCanal = useMemo(() => {
+    if (precioCanalActual === null || precioCanalAnterior === null) {
+      return null;
+    }
+    return precioCanalActual - precioCanalAnterior;
+  }, [precioCanalActual, precioCanalAnterior]);
+
+  const indicador = useMemo(
+    () => indicadorDesdeMargen(calculados.margen),
+    [calculados.margen]
+  );
+
   const listaPrecios = useMemo(() => {
     return PRODUCTOS_BALANCE.map((producto) => {
-      const miPrecio = precios[producto.id].miPrecio.trim();
+      const precioNuevo = parsearNumero(
+        preciosGuardados[producto.id].precioNuevo
+      );
       return {
         ...producto,
-        precioMostrar: miPrecio || "—",
+        precioMostrar: precioNuevo,
       };
     });
-  }, [precios]);
+  }, [preciosGuardados]);
+
+  const tienePreciosGuardados = useMemo(
+    () =>
+      PRODUCTOS_BALANCE.some(
+        (producto) =>
+          parsearNumero(preciosGuardados[producto.id].precioNuevo) !== null
+      ),
+    [preciosGuardados]
+  );
+
+  useEffect(() => {
+    if (historialInicializado.current) return;
+    historialInicializado.current = true;
+
+    const listaPublicada = cargarListaPreciosPublicadaLocal();
+    if (listaPublicada) {
+      setPreciosAnteriores(
+        preciosAnterioresDesdeListaPublicada(listaPublicada)
+      );
+      setPrecioCanalAnteriorPublicado(listaPublicada.precioCanal);
+      setTieneHistorialPublicado(true);
+      return;
+    }
+
+    const anterioresGuardados = cargarPreciosAnterioresGuardadosLocal();
+    if (anterioresGuardados) {
+      setPreciosAnteriores(anterioresGuardados);
+    }
+
+    const borrador = cargarBorradorBalanceLocal();
+    if (borrador && !listaPublicada) {
+      setCompra(borrador.compra);
+      setCostoTotal(borrador.costoTotal);
+      setRendimiento(borrador.rendimiento);
+      setCapoteReal(borrador.capoteReal);
+      setRendimientoParaPrecios(borrador.rendimientoParaPrecios);
+      setCapoteRealParaPrecios(borrador.capoteRealParaPrecios);
+      setPreciosAnteriores(
+        borrador.preciosAnteriores ?? crearPreciosAnterioresInicial()
+      );
+      setPrecios(borrador.preciosGuardados);
+      setPreciosGuardados(borrador.preciosGuardados);
+    }
+  }, []);
 
   useEffect(() => {
     if (!costoTotalManual.current && costoCalculado !== null) {
@@ -205,30 +382,71 @@ export default function BalanceModulo() {
   }, [costoCalculado]);
 
   useEffect(() => {
-    const auto = resultadosCalculadosAString(calculados);
+    if (!capoteRealManual.current && capoteCalculado !== null) {
+      setCapoteReal(formatearNumeroBalance(capoteCalculado));
+    }
+  }, [capoteCalculado]);
 
-    setResultados((prev) => {
+  useEffect(() => {
+    if (!enPreciosOPosterior) return;
+
+    setPrecios((prev) => {
       const next = { ...prev };
-      (Object.keys(auto) as (keyof ResultadosState)[]).forEach((campo) => {
-        if (!resultadosManual.current[campo]) {
-          next[campo] = auto[campo];
+
+      for (const producto of PRODUCTOS_BALANCE) {
+        if (!preciosManual.current[producto.id]) {
+          const sugerido = preciosSugeridos[producto.id];
+          if (sugerido !== null) {
+            next[producto.id] = {
+              precioNuevo: formatearPesosEnterosInput(sugerido),
+            };
+          }
         }
-      });
+      }
+
       return next;
     });
-  }, [calculados]);
+  }, [preciosSugeridos, enPreciosOPosterior]);
+
+  useEffect(() => {
+    if (!enPreciosOPosterior) return;
+    setResultados(resultadosCalculadosAString(calculados));
+  }, [calculados, enPreciosOPosterior]);
 
   useEffect(() => {
     costoTotalManual.current = false;
-    resultadosManual.current = {};
   }, [
     compra.kilosTotales,
     compra.precioCompraKg,
     compra.gastosAdicionales,
-    compra.numeroPuercos,
-    rendimiento,
-    precios,
   ]);
+
+  useEffect(() => {
+    capoteRealManual.current = false;
+  }, [
+    rendimiento.costilla,
+    rendimiento.pierna,
+    rendimiento.espaldilla,
+    rendimiento.espinazo,
+  ]);
+
+  useEffect(() => {
+    if (!enPreciosOPosterior) return;
+    preciosManual.current = {};
+  }, [precioCanalNuevo, enPreciosOPosterior]);
+
+  function actualizarSnapshotPrecios() {
+    setRendimientoParaPrecios({ ...rendimiento });
+    setCapoteRealParaPrecios(capoteReal);
+  }
+
+  function irAPaso(indice: number) {
+    if (indice >= indicePrecios && pasoActual < indicePrecios) {
+      actualizarSnapshotPrecios();
+    }
+    setPasoActual(indice);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   function actualizarCompra(campo: keyof CompraDiaState, valor: string) {
     setCompra((prev) => ({ ...prev, [campo]: valor }));
@@ -243,40 +461,243 @@ export default function BalanceModulo() {
     setRendimiento((prev) => ({ ...prev, [productoId]: kilos }));
   }
 
-  function actualizarPrecio(
-    productoId: string,
-    campo: "precioMercado" | "miPrecio",
+  function actualizarCapoteReal(valor: string) {
+    capoteRealManual.current = true;
+    setCapoteReal(valor);
+  }
+
+  function crearBorradorActual(
+    preciosParaGuardar: PreciosState = preciosGuardados
+  ): BalanceBorradorLocal {
+    return {
+      compra,
+      costoTotal,
+      rendimiento,
+      capoteReal,
+      rendimientoParaPrecios,
+      capoteRealParaPrecios,
+      preciosAnteriores: clonarPreciosAnteriores(preciosAnteriores),
+      preciosGuardados: clonarPrecios(preciosParaGuardar),
+      actualizadoEn: new Date().toISOString(),
+    };
+  }
+
+  async function handleGuardarPrecios() {
+    setGuardandoPrecios(true);
+    setMensajePreciosGuardados(null);
+
+    try {
+      const anterioresNormalizados =
+        normalizarPreciosAnterioresEnteros(preciosAnteriores);
+      setPreciosAnteriores(anterioresNormalizados);
+
+      const normalizados = normalizarPreciosEnteros(precios);
+      setPrecios(normalizados);
+
+      const guardados = clonarPrecios(normalizados);
+      setPreciosGuardados(guardados);
+
+      await guardarPreciosBalance(crearBorradorActual(guardados), {
+        esPrimerBalance: !tieneHistorialPublicado,
+      });
+
+      const nuevosResultados = resultadosCalculadosAString(
+        calcularResultadosBalance(
+          compra,
+          rendimientoParaPrecios,
+          guardados,
+          costoTotal
+        )
+      );
+      setResultados(nuevosResultados);
+      setMensajePreciosGuardados("Precios guardados correctamente.");
+    } catch {
+      setMensajePreciosGuardados(
+        "No se pudieron guardar los precios. Intenta de nuevo."
+      );
+    } finally {
+      setGuardandoPrecios(false);
+    }
+  }
+
+  async function handleGuardarBorrador() {
+    setGuardandoBorrador(true);
+    setMensajeBorrador(null);
+
+    try {
+      await guardarBorradorBalance(crearBorradorActual());
+      setMensajeBorrador("Borrador guardado correctamente.");
+    } catch {
+      setMensajeBorrador("No se pudo guardar el borrador. Intenta de nuevo.");
+    } finally {
+      setGuardandoBorrador(false);
+    }
+  }
+
+  async function handlePublicar() {
+    setGuardandoPublicacion(true);
+    setMensajePublicacion(null);
+
+    try {
+      const canalPublicado =
+        precioCanalActual ??
+        calcularPrecioCanal(
+          PRODUCTOS_BALANCE.reduce(
+            (acc, producto) => {
+              const valor = parsearNumero(
+                preciosGuardados[producto.id].precioNuevo
+              );
+              if (valor !== null) acc[producto.id] = valor;
+              return acc;
+            },
+            {} as Record<ProductoBalanceId, number>
+          ),
+          rendimientoParaPrecios
+        );
+
+      await publicarBalance(crearBorradorActual(), canalPublicado);
+
+      setPrecioCanalAnteriorPublicado(canalPublicado);
+      setPreciosAnteriores(
+        preciosAnterioresDesdeListaPublicada({
+          precios: clonarPrecios(preciosGuardados),
+          precioCanal: canalPublicado,
+          publicadoEn: new Date().toISOString(),
+        })
+      );
+      setTieneHistorialPublicado(true);
+      setMensajePublicacion("Balance publicado correctamente.");
+    } catch {
+      setMensajePublicacion("No se pudo publicar el balance. Intenta de nuevo.");
+    } finally {
+      setGuardandoPublicacion(false);
+    }
+  }
+
+  function actualizarPrecioAnterior(
+    productoId: ProductoBalanceId,
     valor: string
   ) {
-    setPrecios((prev) => ({
+    setMensajePreciosGuardados(null);
+    setPreciosAnteriores((prev) => ({
       ...prev,
-      [productoId]: {
-        ...prev[productoId as keyof PreciosMercadoState],
-        [campo]: valor,
-      },
+      [productoId]: { precio: valor },
     }));
   }
 
-  function actualizarResultado(campo: keyof ResultadosState, valor: string) {
-    resultadosManual.current[campo] = true;
-    setResultados((prev) => ({ ...prev, [campo]: valor }));
-
-    if (campo === "costoTotal") {
-      costoTotalManual.current = true;
-      setCostoTotal(valor);
-    }
+  function actualizarPrecioNuevo(
+    productoId: ProductoBalanceId,
+    valor: string
+  ) {
+    preciosManual.current[productoId] = true;
+    setMensajePreciosGuardados(null);
+    setPrecios((prev) => ({
+      ...prev,
+      [productoId]: { precioNuevo: valor },
+    }));
   }
 
   function irAnterior() {
     if (esPrimerPaso) return;
-    setPasoActual((prev) => prev - 1);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    irAPaso(pasoActual - 1);
   }
 
   function irSiguiente() {
     if (esUltimoPaso) return;
-    setPasoActual((prev) => prev + 1);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    irAPaso(pasoActual + 1);
+  }
+
+  function renderPanelLateral() {
+    if (paso.id === "rendimiento") {
+      return (
+        <SeccionBalance
+          id="resumen-kilos"
+          titulo="Resumen de kilos"
+          descripcion="Totales capturados en este paso."
+        >
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between gap-4 rounded-lg bg-zinc-50 px-4 py-3">
+              <span className="text-zinc-500">Total kilos</span>
+              <span className="font-semibold tabular-nums text-zinc-900">
+                {totalKilosRendimiento !== null
+                  ? formatearNumeroBalance(totalKilosRendimiento)
+                  : "—"}
+              </span>
+            </div>
+            <div className="flex justify-between gap-4 rounded-lg bg-amber-50 px-4 py-3">
+              <span className="text-zinc-600">Capote calculado (kg)</span>
+              <span className="font-semibold tabular-nums text-amber-800">
+                {capoteCalculado !== null
+                  ? formatearNumeroBalance(capoteCalculado)
+                  : "—"}
+              </span>
+            </div>
+            <div className="flex justify-between gap-4 rounded-lg border border-amber-200 bg-white px-4 py-3">
+              <span className="text-zinc-600">Capote real (kg)</span>
+              <span className="font-semibold tabular-nums text-zinc-900">
+                {capoteReal || "—"}
+              </span>
+            </div>
+          </div>
+        </SeccionBalance>
+      );
+    }
+
+    if (paso.id === "precios" || paso.id === "resultados") {
+      return (
+        <SeccionBalance
+          id="lista-precios-dia"
+          titulo="Lista de precios del día"
+          descripcion="Vista previa con los precios nuevos definidos."
+        >
+          <ul className="divide-y divide-zinc-100 rounded-xl ring-1 ring-zinc-200">
+            {listaPrecios.map((item) => (
+              <li
+                key={item.id}
+                className="flex items-center justify-between gap-4 bg-white px-4 py-3 first:rounded-t-xl last:rounded-b-xl"
+              >
+                <span className="font-medium text-zinc-900">
+                  {item.nombreLista}
+                </span>
+                <span className="tabular-nums text-zinc-600">
+                  {formatearPesosEnteros(item.precioMostrar)}
+                </span>
+              </li>
+            ))}
+          </ul>
+
+          <div className="mt-5 rounded-lg bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+            <p className="font-medium text-zinc-700">Última actualización:</p>
+            <p className="mt-1 text-zinc-500">Sin publicar</p>
+          </div>
+
+          <div className="mt-4 space-y-2 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+            <div className="flex justify-between gap-4">
+              <span className="text-zinc-500">Utilidad por puerco</span>
+              <span className="font-medium tabular-nums text-zinc-900">
+                {formatearPesosEnteros(
+                  parsearNumero(resultados.utilidadPorPuerco)
+                )}
+              </span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-zinc-500">Utilidad total</span>
+              <span className="font-medium tabular-nums text-emerald-700">
+                {formatearPesosEnteros(parsearNumero(resultados.utilidadTotal))}
+              </span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-zinc-500">Margen</span>
+              <span className="font-medium tabular-nums text-zinc-900">
+                {resultados.margen ? `${resultados.margen}%` : "—"}
+              </span>
+            </div>
+          </div>
+        </SeccionBalance>
+      );
+    }
+
+    return null;
   }
 
   function renderPasoActual() {
@@ -380,107 +801,27 @@ export default function BalanceModulo() {
 
       case "rendimiento":
         return (
-          <div className="overflow-x-auto rounded-xl ring-1 ring-zinc-200">
-            <table className="min-w-full divide-y divide-zinc-200 text-sm">
-              <thead className="bg-zinc-50">
-                <tr>
-                  <th
-                    scope="col"
-                    className="px-4 py-3 text-left font-semibold text-zinc-700"
-                  >
-                    Producto
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-4 py-3 text-right font-semibold text-zinc-700"
-                  >
-                    Kilos
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100 bg-white">
-                {PRODUCTOS_BALANCE.map((producto) => (
-                  <tr key={producto.id} className="hover:bg-zinc-50/80">
-                    <td className="px-4 py-3 font-medium text-zinc-900">
-                      {producto.nombreRendimiento}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="0.00"
-                        value={rendimiento[producto.id]}
-                        onChange={(event) =>
-                          actualizarRendimiento(
-                            producto.id,
-                            event.target.value
-                          )
-                        }
-                        className={`${inputTablaClass} text-right`}
-                        aria-label={`Kilos de ${producto.nombreRendimiento}`}
-                      />
-                    </td>
+          <div className="space-y-6">
+            <div className="overflow-x-auto rounded-xl ring-1 ring-zinc-200">
+              <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                <thead className="bg-zinc-50">
+                  <tr>
+                    <th
+                      scope="col"
+                      className="px-4 py-3 text-left font-semibold text-zinc-700"
+                    >
+                      Producto
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-4 py-3 text-right font-semibold text-zinc-700"
+                    >
+                      Kilos
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot className="bg-zinc-50">
-                <tr>
-                  <td className="px-4 py-3 font-semibold text-zinc-900">
-                    Total kilos
-                  </td>
-                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-zinc-900">
-                    {totalKilosRendimiento !== null
-                      ? formatearNumeroBalance(totalKilosRendimiento)
-                      : "—"}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        );
-
-      case "precios-mercado":
-        return (
-          <div className="overflow-x-auto rounded-xl ring-1 ring-zinc-200">
-            <table className="min-w-full divide-y divide-zinc-200 text-sm">
-              <thead className="bg-zinc-50">
-                <tr>
-                  <th
-                    scope="col"
-                    className="px-4 py-3 text-left font-semibold text-zinc-700"
-                  >
-                    Producto
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-4 py-3 text-right font-semibold text-zinc-700"
-                  >
-                    Precio mercado
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-4 py-3 text-right font-semibold text-zinc-700"
-                  >
-                    Mi precio
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-4 py-3 text-right font-semibold text-zinc-700"
-                  >
-                    Diferencia
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100 bg-white">
-                {PRODUCTOS_BALANCE.map((producto) => {
-                  const fila = precios[producto.id];
-                  const diferencia = calcularDiferenciaPrecio(
-                    fila.precioMercado,
-                    fila.miPrecio
-                  );
-
-                  return (
+                </thead>
+                <tbody className="divide-y divide-zinc-100 bg-white">
+                  {PRODUCTOS_BALANCE.map((producto) => (
                     <tr key={producto.id} className="hover:bg-zinc-50/80">
                       <td className="px-4 py-3 font-medium text-zinc-900">
                         {producto.nombreRendimiento}
@@ -491,93 +832,280 @@ export default function BalanceModulo() {
                           min="0"
                           step="0.01"
                           placeholder="0.00"
-                          value={fila.precioMercado}
+                          value={rendimiento[producto.id]}
                           onChange={(event) =>
-                            actualizarPrecio(
+                            actualizarRendimiento(
                               producto.id,
-                              "precioMercado",
                               event.target.value
                             )
                           }
                           className={`${inputTablaClass} text-right`}
-                          aria-label={`Precio de mercado de ${producto.nombreRendimiento}`}
+                          aria-label={`Kilos de ${producto.nombreRendimiento}`}
                         />
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          placeholder="0.00"
-                          value={fila.miPrecio}
-                          onChange={(event) =>
-                            actualizarPrecio(
-                              producto.id,
-                              "miPrecio",
-                              event.target.value
-                            )
-                          }
-                          className={`${inputTablaClass} text-right`}
-                          aria-label={`Mi precio de ${producto.nombreRendimiento}`}
-                        />
-                      </td>
-                      <td
-                        className={`px-4 py-3 text-right tabular-nums ${claseDiferencia(diferencia)}`}
-                      >
-                        {formatearDiferencia(diferencia)}
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  ))}
+                </tbody>
+                <tfoot className="bg-zinc-50">
+                  <tr>
+                    <td className="px-4 py-3 font-semibold text-zinc-900">
+                      Total kilos
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold tabular-nums text-zinc-900">
+                      {totalKilosRendimiento !== null
+                        ? formatearNumeroBalance(totalKilosRendimiento)
+                        : "—"}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-5 ring-1 ring-amber-100">
+              <h3 className="text-base font-semibold text-zinc-900">
+                Resumen del Capote
+              </h3>
+              <p className="mt-3 text-sm text-zinc-600">
+                Capote (kg) = Costillas + Piernas + Espaldillas + Espinazos
+              </p>
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-amber-300 bg-white px-4 py-3 shadow-sm">
+                <span className="font-semibold text-zinc-900">
+                  Capote calculado (kg)
+                </span>
+                <span className="text-2xl font-bold tabular-nums text-amber-800">
+                  {capoteCalculado !== null
+                    ? formatearNumeroBalance(capoteCalculado)
+                    : "—"}
+                </span>
+              </div>
+              <p className="mt-4 text-xs leading-relaxed text-zinc-500">
+                El Capote representa la suma de Costillas + Piernas +
+                Espaldillas + Espinazos.
+              </p>
+            </div>
+
+            <CampoCompra
+              label="Capote real (kg)"
+              htmlFor="balance-capote-real"
+              hint="Inicia con el valor calculado. Los pasos posteriores usarán este dato."
+            >
+              <input
+                id="balance-capote-real"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                value={capoteReal}
+                onChange={(event) => actualizarCapoteReal(event.target.value)}
+                className={inputClass}
+              />
+            </CampoCompra>
+          </div>
+        );
+
+      case "precios":
+        return (
+          <div className="space-y-6">
+            {!tieneHistorialPublicado ? (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Primer balance: captura manualmente los precios anteriores. Al
+                guardar, quedarán como referencia para el siguiente balance.
+              </p>
+            ) : null}
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              <TarjetaResumenCanal
+                titulo="Precio canal anterior"
+                valor={formatearPesosEnteros(precioCanalAnterior)}
+              />
+              <TarjetaResumenCanal
+                titulo="Precio canal actual"
+                valor={formatearPesosEnteros(precioCanalActual)}
+              />
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Diferencia
+                </p>
+                <p
+                  className={`mt-2 text-2xl font-bold tabular-nums ${claseDiferencia(diferenciaCanal)}`}
+                >
+                  {diferenciaCanal === null
+                    ? "—"
+                    : `${diferenciaCanal > 0 ? "+" : ""}${formatearPesosEnteros(diferenciaCanal)}`}
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-xl ring-1 ring-zinc-200">
+              <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                <thead className="bg-zinc-50">
+                  <tr>
+                    <th
+                      scope="col"
+                      className="px-4 py-3 text-left font-semibold text-zinc-700"
+                    >
+                      Producto
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-4 py-3 text-right font-semibold text-zinc-700"
+                    >
+                      Precio anterior
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-4 py-3 text-right font-semibold text-zinc-700"
+                    >
+                      Precio sugerido
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-4 py-3 text-right font-semibold text-zinc-700"
+                    >
+                      Precio nuevo
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 bg-white">
+                  {PRODUCTOS_BALANCE.map((producto) => {
+                    const anterior = preciosAnterioresNumeros[producto.id];
+                    const sugerido = preciosSugeridos[producto.id];
+
+                    return (
+                      <tr key={producto.id} className="hover:bg-zinc-50/80">
+                        <td className="px-4 py-3 font-medium text-zinc-900">
+                          {producto.nombreRendimiento}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {tieneHistorialPublicado ? (
+                            <span className="tabular-nums text-zinc-600">
+                              {formatearPesosEnteros(anterior)}
+                            </span>
+                          ) : (
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              placeholder="0"
+                              value={preciosAnteriores[producto.id].precio}
+                              onChange={(event) =>
+                                actualizarPrecioAnterior(
+                                  producto.id,
+                                  event.target.value
+                                )
+                              }
+                              className={`${inputTablaClass} text-right`}
+                              aria-label={`Precio anterior de ${producto.nombreRendimiento}`}
+                            />
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums font-medium text-blue-700">
+                          {formatearPesosEnteros(sugerido)}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            placeholder="0"
+                            value={precios[producto.id].precioNuevo}
+                            onChange={(event) =>
+                              actualizarPrecioNuevo(
+                                producto.id,
+                                event.target.value
+                              )
+                            }
+                            className={`${inputTablaClass} text-right`}
+                            aria-label={`Precio nuevo de ${producto.nombreRendimiento}`}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={handleGuardarPrecios}
+                disabled={guardandoPrecios}
+                className="rounded-xl border border-zinc-300 bg-white px-5 py-2.5 text-sm font-medium text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {guardandoPrecios ? "Guardando..." : "Guardar precios"}
+              </button>
+            </div>
+
+            {mensajePreciosGuardados ? (
+              <p
+                className={`text-sm ${
+                  mensajePreciosGuardados.includes("correctamente")
+                    ? "text-emerald-700"
+                    : "text-red-600"
+                }`}
+                role="status"
+              >
+                {mensajePreciosGuardados}
+              </p>
+            ) : null}
+
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <span className="text-sm font-medium text-zinc-700">
+                  Utilidad total
+                </span>
+                <span className="text-lg font-bold tabular-nums text-emerald-800">
+                  {formatearPesosEnteros(
+                    tienePreciosGuardados ? calculados.utilidadTotal : null
+                  )}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-zinc-500">
+                {!tienePreciosGuardados
+                  ? "Presiona Guardar precios para confirmar y recalcular."
+                  : hayCambiosSinGuardar
+                    ? "Hay cambios sin guardar. Presiona Guardar precios para actualizar la utilidad."
+                    : "Calculada con los precios guardados."}
+              </p>
+            </div>
           </div>
         );
 
       case "resultados":
         return (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <CampoResultado
-              label="Venta total"
-              htmlFor="resultado-venta-total"
-              value={resultados.ventaTotal}
-              onChange={(valor) => actualizarResultado("ventaTotal", valor)}
-            />
-            <CampoResultado
-              label="Costo total"
-              htmlFor="resultado-costo-total"
-              value={resultados.costoTotal}
-              onChange={(valor) => actualizarResultado("costoTotal", valor)}
-            />
-            <CampoResultado
-              label="Utilidad total"
-              htmlFor="resultado-utilidad-total"
-              value={resultados.utilidadTotal}
-              onChange={(valor) => actualizarResultado("utilidadTotal", valor)}
-            />
-            <CampoResultado
-              label="Utilidad por puerco"
-              htmlFor="resultado-utilidad-puerco"
-              value={resultados.utilidadPorPuerco}
-              onChange={(valor) =>
-                actualizarResultado("utilidadPorPuerco", valor)
-              }
-            />
-            <CampoResultado
-              label="Utilidad por kilogramo"
-              htmlFor="resultado-utilidad-kg"
-              value={resultados.utilidadPorKilogramo}
-              onChange={(valor) =>
-                actualizarResultado("utilidadPorKilogramo", valor)
-              }
-            />
-            <CampoResultado
-              label="Margen"
-              htmlFor="resultado-margen"
-              value={resultados.margen}
-              onChange={(valor) => actualizarResultado("margen", valor)}
-              suffix="%"
-            />
+          <div className="space-y-6">
+            {indicador ? (
+              <div
+                className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${ETIQUETAS_INDICADOR[indicador].className}`}
+              >
+                <span className="text-xl" aria-hidden>
+                  {ETIQUETAS_INDICADOR[indicador].emoji}
+                </span>
+                <span className="font-semibold">
+                  {ETIQUETAS_INDICADOR[indicador].etiqueta}
+                </span>
+              </div>
+            ) : null}
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              <TarjetaResultado
+                titulo="Utilidad por puerco"
+                valor={formatearPesosEnteros(
+                  parsearNumero(resultados.utilidadPorPuerco)
+                )}
+              />
+              <TarjetaResultado
+                titulo="Utilidad total"
+                valor={formatearPesosEnteros(
+                  parsearNumero(resultados.utilidadTotal)
+                )}
+              />
+              <TarjetaResultado
+                titulo="Margen"
+                valor={resultados.margen ? `${resultados.margen}%` : "—"}
+              />
+            </div>
           </div>
         );
 
@@ -585,6 +1113,8 @@ export default function BalanceModulo() {
         return null;
     }
   }
+
+  const panelLateral = renderPanelLateral();
 
   return (
     <main className="min-h-screen bg-zinc-100">
@@ -614,10 +1144,7 @@ export default function BalanceModulo() {
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => {
-                    setPasoActual(indice);
-                    window.scrollTo({ top: 0, behavior: "smooth" });
-                  }}
+                  onClick={() => irAPaso(indice)}
                   className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
                     activo
                       ? "bg-zinc-900 text-white"
@@ -636,8 +1163,10 @@ export default function BalanceModulo() {
           </p>
         </div>
 
-        <div className="grid gap-8 xl:grid-cols-3">
-          <div className="space-y-8 xl:col-span-2">
+        <div
+          className={`grid gap-8 ${panelLateral ? "xl:grid-cols-3" : "max-w-4xl"}`}
+        >
+          <div className={`space-y-8 ${panelLateral ? "xl:col-span-2" : ""}`}>
             <SeccionBalance
               id={paso.id}
               titulo={paso.titulo}
@@ -647,7 +1176,7 @@ export default function BalanceModulo() {
             </SeccionBalance>
 
             <section
-              aria-label="Acciones del balance"
+              aria-label="Navegación del balance"
               className="rounded-2xl border border-dashed border-zinc-300 bg-white/80 p-6"
             >
               <div className="flex flex-wrap gap-3">
@@ -667,79 +1196,57 @@ export default function BalanceModulo() {
                 >
                   Siguiente
                 </button>
+              </div>
+            </section>
+
+            <section
+              aria-label="Guardado del balance"
+              className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200"
+            >
+              <h3 className="text-base font-semibold text-zinc-900">Guardado</h3>
+              <p className="mt-1 text-sm text-zinc-500">
+                Guarda tu avance como borrador o publica el balance como vigente.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-3">
                 <button
                   type="button"
-                  className="rounded-xl border border-emerald-300 bg-emerald-50 px-5 py-2.5 text-sm font-medium text-emerald-800 transition hover:bg-emerald-100"
+                  onClick={handleGuardarBorrador}
+                  disabled={guardandoBorrador || guardandoPublicacion}
+                  className="rounded-xl border border-zinc-300 bg-white px-5 py-2.5 text-sm font-medium text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Publicar Lista de Precios
+                  {guardandoBorrador ? "Guardando..." : "Guardar"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePublicar}
+                  disabled={guardandoBorrador || guardandoPublicacion}
+                  className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {guardandoPublicacion ? "Publicando..." : "Publicar"}
                 </button>
               </div>
+              {mensajeBorrador ? (
+                <p className="mt-3 text-sm text-emerald-700" role="status">
+                  {mensajeBorrador}
+                </p>
+              ) : null}
+              {mensajePublicacion ? (
+                <p className="mt-3 text-sm text-emerald-700" role="status">
+                  {mensajePublicacion}
+                </p>
+              ) : null}
+              <p className="mt-3 text-xs text-zinc-400">
+                Guardar conserva un borrador. Publicar lo convierte en el balance
+                vigente del día.
+              </p>
             </section>
           </div>
 
-          <aside className="xl:col-span-1">
-            <div className="sticky top-8 space-y-4">
-              <SeccionBalance
-                id="lista-precios-dia"
-                titulo="Lista de precios del día"
-                descripcion="Vista previa de la lista que utilizarán los trabajadores."
-              >
-                <ul className="divide-y divide-zinc-100 rounded-xl ring-1 ring-zinc-200">
-                  {listaPrecios.map((item) => (
-                    <li
-                      key={item.id}
-                      className="flex items-center justify-between gap-4 bg-white px-4 py-3 first:rounded-t-xl last:rounded-b-xl"
-                    >
-                      <span className="font-medium text-zinc-900">
-                        {item.nombreLista}
-                      </span>
-                      <span className="tabular-nums text-zinc-600">
-                        {item.precioMostrar === "—"
-                          ? item.precioMostrar
-                          : formatearMoneda(Number(item.precioMostrar))}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-
-                <div className="mt-5 rounded-lg bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
-                  <p className="font-medium text-zinc-700">
-                    Última actualización:
-                  </p>
-                  <p className="mt-1 text-zinc-500">Sin publicar</p>
-                </div>
-
-                <div className="mt-4 space-y-2 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                  <div className="flex justify-between gap-4">
-                    <span className="text-zinc-500">Venta total</span>
-                    <span className="font-medium tabular-nums text-zinc-900">
-                      {parsearNumero(resultados.ventaTotal) !== null
-                        ? formatearMoneda(parsearNumero(resultados.ventaTotal)!)
-                        : "—"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <span className="text-zinc-500">Costo total</span>
-                    <span className="font-medium tabular-nums text-zinc-900">
-                      {parsearNumero(resultados.costoTotal) !== null
-                        ? formatearMoneda(parsearNumero(resultados.costoTotal)!)
-                        : "—"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <span className="text-zinc-500">Utilidad total</span>
-                    <span className="font-medium tabular-nums text-emerald-700">
-                      {parsearNumero(resultados.utilidadTotal) !== null
-                        ? formatearMoneda(
-                            parsearNumero(resultados.utilidadTotal)!
-                          )
-                        : "—"}
-                    </span>
-                  </div>
-                </div>
-              </SeccionBalance>
-            </div>
-          </aside>
+          {panelLateral ? (
+            <aside className="xl:col-span-1">
+              <div className="sticky top-8 space-y-4">{panelLateral}</div>
+            </aside>
+          ) : null}
         </div>
       </div>
     </main>
