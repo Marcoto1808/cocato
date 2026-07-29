@@ -31,9 +31,19 @@ import {
 } from "@/lib/tipo-calculo-producto";
 import {
   etiquetaCantidadModo,
-  pasoCantidadPorUnidad,
   type UnidadCapturaPedido,
 } from "@/lib/pedido-unidades";
+import {
+  cantidadNumericaParaCalculo,
+  cantidadSolicitadaParaGuardar,
+  cantidadTextoParaGuardar,
+  esCantidadTexto,
+  importeFijoDesdeCantidad,
+  lineaTieneCantidadValida,
+  mostrarCantidadSolicitada,
+  parsearCantidadCaptura,
+  type CantidadCapturada,
+} from "@/lib/pedido-cantidad";
 import CantidadConUnidad from "@/components/pedidos/CantidadConUnidad";
 import SelectorModoCaptura from "@/components/pedidos/SelectorModoCaptura";
 
@@ -68,6 +78,7 @@ type LineaCaptura = {
   unidad: string;
   tipo_calculo: TipoCalculoProducto;
   cantidad: number;
+  cantidad_texto: string | null;
   precio_lista: number;
   precio_aplicado: number;
   precio_modificado: boolean;
@@ -90,11 +101,18 @@ function formatearError(error: PostgrestError | null): string {
 function crearLineaDesdeProducto(
   producto: ProductoOption,
   precioLista: number,
-  cantidad: number,
+  parsed: CantidadCapturada,
   unidad: UnidadCapturaPedido
 ): LineaCaptura {
   const tipo_calculo =
     producto.tipo_calculo ?? tipoCalculoPorDefecto(producto.unidad);
+
+  const cantidad = cantidadSolicitadaParaGuardar(parsed);
+  const cantidad_texto = cantidadTextoParaGuardar(parsed);
+  const cantidadEsTexto = esCantidadTexto(cantidad_texto);
+  const importeFijo =
+    parsed.tipo === "importe" ? parsed.importe : importeFijoDesdeCantidad(cantidad_texto);
+  const cantidadCalculo = cantidadNumericaParaCalculo(cantidad, cantidad_texto);
 
   return {
     key: crypto.randomUUID(),
@@ -103,22 +121,39 @@ function crearLineaDesdeProducto(
     unidad,
     tipo_calculo,
     cantidad,
+    cantidad_texto,
     precio_lista: precioLista,
     precio_aplicado: precioLista,
     precio_modificado: false,
     peso_real: null,
-    subtotal: calcularSubtotalLineaCaptura(unidad, cantidad, precioLista),
+    subtotal: calcularSubtotalLineaCaptura(
+      unidad,
+      cantidadCalculo,
+      precioLista,
+      null,
+      cantidadEsTexto,
+      importeFijo
+    ),
   };
 }
 
 function recalcularLinea(linea: LineaCaptura): LineaCaptura {
+  const cantidadEsTexto = esCantidadTexto(linea.cantidad_texto);
+  const importeFijo = importeFijoDesdeCantidad(linea.cantidad_texto);
+  const cantidadCalculo = cantidadNumericaParaCalculo(
+    linea.cantidad,
+    linea.cantidad_texto
+  );
+
   return {
     ...linea,
     subtotal: calcularSubtotalLineaCaptura(
       linea.unidad,
-      linea.cantidad,
+      cantidadCalculo,
       linea.precio_aplicado,
-      linea.peso_real
+      linea.peso_real,
+      cantidadEsTexto,
+      importeFijo
     ),
   };
 }
@@ -340,8 +375,8 @@ export default function NuevoPedidoForm() {
       return;
     }
 
-    const cantidad = Number(cantidadCaptura);
-    if (!cantidad || cantidad <= 0) {
+    const parsed = parsearCantidadCaptura(cantidadCaptura);
+    if (!parsed) {
       setError("Ingresa una cantidad válida.");
       cantidadInputRef.current?.focus();
       return;
@@ -351,19 +386,25 @@ export default function NuevoPedidoForm() {
 
     const precioLista = precioProductoParaPedido(preciosLista, producto);
 
-    const lineaExistente = lineas.find(
-      (linea) =>
-        linea.producto_id === producto.id && linea.unidad === modoCaptura
-    );
+    const lineaExistente =
+      parsed.tipo === "numerica"
+        ? lineas.find(
+            (linea) =>
+              linea.producto_id === producto.id &&
+              linea.unidad === modoCaptura &&
+              !linea.cantidad_texto
+          )
+        : undefined;
 
-    if (lineaExistente) {
+    if (lineaExistente && parsed.tipo === "numerica") {
       actualizarLinea(lineaExistente.key, {
-        cantidad: lineaExistente.cantidad + cantidad,
+        cantidad: lineaExistente.cantidad + parsed.cantidad,
+        cantidad_texto: null,
       });
     } else {
       setLineas((prev) => [
         ...prev,
-        crearLineaDesdeProducto(producto, precioLista, cantidad, modoCaptura),
+        crearLineaDesdeProducto(producto, precioLista, parsed, modoCaptura),
       ]);
     }
 
@@ -395,6 +436,31 @@ export default function NuevoPedidoForm() {
     }
   }
 
+  function actualizarCantidadLinea(key: string, valor: string) {
+    const trimmed = valor.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const parsed = parsearCantidadCaptura(valor);
+    if (!parsed) {
+      return;
+    }
+
+    if (parsed.tipo === "numerica") {
+      actualizarLinea(key, {
+        cantidad: parsed.cantidad,
+        cantidad_texto: null,
+      });
+      return;
+    }
+
+    actualizarLinea(key, {
+      cantidad: 1,
+      cantidad_texto: parsed.cantidad_texto,
+    });
+  }
+
   function actualizarLinea(key: string, cambios: Partial<LineaCaptura>) {
     setLineas((prev) =>
       prev.map((linea) => {
@@ -419,9 +485,11 @@ export default function NuevoPedidoForm() {
       return;
     }
 
-    const lineasInvalidas = lineas.filter((linea) => linea.cantidad <= 0);
+    const lineasInvalidas = lineas.filter(
+      (linea) => !lineaTieneCantidadValida(linea.cantidad, linea.cantidad_texto)
+    );
     if (lineasInvalidas.length > 0) {
-      setError("Todas las líneas deben tener cantidad mayor a cero.");
+      setError("Todas las líneas deben tener una cantidad válida.");
       return;
     }
 
@@ -431,7 +499,7 @@ export default function NuevoPedidoForm() {
     const resumenProductos = lineas
       .map(
         (linea) =>
-          `${linea.cantidad} ${linea.unidad} ${linea.nombre}`
+          `${mostrarCantidadSolicitada(linea.cantidad, linea.cantidad_texto, linea.unidad)} ${linea.nombre}`
       )
       .join(", ");
 
@@ -460,6 +528,7 @@ export default function NuevoPedidoForm() {
       pedido_id: pedido.id,
       producto_id: linea.producto_id,
       cantidad_solicitada: linea.cantidad,
+      cantidad_texto: linea.cantidad_texto,
       unidad: linea.unidad,
       tipo_calculo: linea.tipo_calculo,
       peso_real: linea.peso_real,
@@ -725,9 +794,7 @@ export default function NuevoPedidoForm() {
               <input
                 id="cantidad-captura"
                 ref={cantidadInputRef}
-                type="number"
-                min={modoCaptura === "kg" ? "0.001" : "1"}
-                step={pasoCantidadPorUnidad(modoCaptura)}
+                type="text"
                 value={cantidadCaptura}
                 onChange={(event) => setCantidadCaptura(event.target.value)}
                 onKeyDown={(event) => {
@@ -740,8 +807,8 @@ export default function NuevoPedidoForm() {
                 placeholder={
                   productoSeleccionado
                     ? modoCaptura === "kg"
-                      ? "Ej. 18"
-                      : "Ej. 5"
+                      ? "Ej. 18, medio kilo, 1/4 kg"
+                      : "Ej. 5, 2 piezas"
                     : "Elige un producto"
                 }
                 className="w-full rounded-lg border border-zinc-300 px-4 py-3 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900 disabled:bg-zinc-50 disabled:text-zinc-400"
@@ -781,10 +848,14 @@ export default function NuevoPedidoForm() {
               </thead>
               <tbody>
                 {lineas.map((linea) => {
+                  const cantidadEsTexto = esCantidadTexto(linea.cantidad_texto);
+                  const importeFijo = importeFijoDesdeCantidad(linea.cantidad_texto);
                   const subtotalTexto = mostrarSubtotalLinea(
                     linea.unidad,
                     linea.subtotal,
-                    linea.peso_real
+                    linea.peso_real,
+                    cantidadEsTexto,
+                    importeFijo
                   );
 
                   return (
@@ -795,9 +866,10 @@ export default function NuevoPedidoForm() {
                     <td className="py-3 pr-3">
                       <CantidadConUnidad
                         cantidad={linea.cantidad}
+                        cantidadTexto={linea.cantidad_texto}
                         unidad={linea.unidad}
-                        onCantidadChange={(cantidad) =>
-                          actualizarLinea(linea.key, { cantidad })
+                        onCantidadChange={(valor) =>
+                          actualizarCantidadLinea(linea.key, valor)
                         }
                         onUnidadChange={(unidad) =>
                           actualizarLinea(linea.key, { unidad })

@@ -395,7 +395,7 @@ export const ETIQUETAS_INDICADOR: Record<
 export function normalizarPreciosEnteros(precios: PreciosState): PreciosState {
   return PRODUCTOS_BALANCE.reduce(
     (acc, producto) => {
-      const valor = parsearNumero(precios[producto.id].precioNuevo);
+      const valor = parsearNumero(precios[producto.id]?.precioNuevo ?? "");
       acc[producto.id] = {
         precioNuevo:
           valor === null ? "" : formatearPesosEnterosInput(valor),
@@ -409,7 +409,9 @@ export function normalizarPreciosEnteros(precios: PreciosState): PreciosState {
 export function clonarPrecios(precios: PreciosState): PreciosState {
   return PRODUCTOS_BALANCE.reduce(
     (acc, producto) => {
-      acc[producto.id] = { ...precios[producto.id] };
+      acc[producto.id] = {
+        precioNuevo: precios[producto.id]?.precioNuevo ?? "",
+      };
       return acc;
     },
     {} as PreciosState
@@ -421,7 +423,9 @@ export function clonarPreciosAnteriores(
 ): PreciosAnterioresState {
   return PRODUCTOS_BALANCE.reduce(
     (acc, producto) => {
-      acc[producto.id] = { ...precios[producto.id] };
+      acc[producto.id] = {
+        precio: precios[producto.id]?.precio ?? "",
+      };
       return acc;
     },
     {} as PreciosAnterioresState
@@ -433,7 +437,7 @@ export function normalizarPreciosAnterioresEnteros(
 ): PreciosAnterioresState {
   return PRODUCTOS_BALANCE.reduce(
     (acc, producto) => {
-      const valor = parsearNumero(precios[producto.id].precio);
+      const valor = parsearNumero(precios[producto.id]?.precio ?? "");
       acc[producto.id] = {
         precio: valor === null ? "" : formatearPesosEnterosInput(valor),
       };

@@ -440,11 +440,14 @@ export default function BalanceModulo() {
       setUltimaActualizacion(listaPublicada.publicadoEn);
       setTieneHistorialPublicado(true);
     } else if (borrador) {
+      const preciosBase = clonarPrecios(borrador.preciosGuardados);
       setPreciosAnteriores(
-        borrador.preciosAnteriores ?? crearPreciosAnterioresInicial()
+        clonarPreciosAnteriores(
+          borrador.preciosAnteriores ?? crearPreciosAnterioresInicial()
+        )
       );
-      setPrecios(borrador.preciosGuardados);
-      setPreciosGuardados(borrador.preciosGuardados);
+      setPrecios(preciosBase);
+      setPreciosGuardados(preciosBase);
       if (borrador.actualizadoEn) {
         setUltimaActualizacion(borrador.actualizadoEn);
       }
@@ -454,7 +457,7 @@ export default function BalanceModulo() {
     } else {
       const anterioresGuardados = cargarPreciosAnterioresGuardadosLocal();
       if (anterioresGuardados) {
-        setPreciosAnteriores(anterioresGuardados);
+        setPreciosAnteriores(clonarPreciosAnteriores(anterioresGuardados));
         setTieneHistorialPublicado(true);
       }
     }
@@ -607,7 +610,7 @@ export default function BalanceModulo() {
           PRODUCTOS_BALANCE.reduce(
             (acc, producto) => {
               const valor = parsearNumero(
-                preciosGuardados[producto.id].precioNuevo
+                preciosGuardados[producto.id]?.precioNuevo ?? ""
               );
               if (valor !== null) acc[producto.id] = valor;
               return acc;

@@ -1,21 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import {
-  calcularTotalLineas,
-  esPesoTotalEditable,
   formatMoneda,
-  mostrarSubtotalLinea,
   normalizarPrecioAplicado,
+  redondearMoneda,
 } from "@/lib/pedido-calculo";
-import CantidadConUnidad from "@/components/pedidos/CantidadConUnidad";
 import {
   normalizarLineaPedido,
-  recalcularLineaPedido,
   type LineaPedidoEditable,
 } from "@/lib/pedido-lineas";
+import {
+  mostrarCantidadSolicitada,
+  importeFijoDesdeCantidad,
+} from "@/lib/pedido-cantidad";
+import {
+  calcularSubtotalPreparacion,
+  formatearCantidadSolicitada,
+  lineaPreparada,
+} from "@/lib/pedido-preparacion";
+import { PedidoMarcarListo } from "./PedidoEstadoActions";
 
 export type { LineaPedidoEditable } from "@/lib/pedido-lineas";
 
@@ -25,6 +31,24 @@ type Props = {
   soloLectura?: boolean;
 };
 
+function recalcularLineaPreparacion(
+  linea: LineaPedidoEditable
+): LineaPedidoEditable {
+  const importeFijo = importeFijoDesdeCantidad(linea.cantidad_texto);
+
+  if (importeFijo !== null) {
+    return {
+      ...linea,
+      subtotal: importeFijo,
+    };
+  }
+
+  return {
+    ...linea,
+    subtotal: calcularSubtotalPreparacion(linea.peso_real, linea.precio_aplicado),
+  };
+}
+
 export default function PedidoLineasEditor({
   pedidoId,
   lineasIniciales,
@@ -32,60 +56,25 @@ export default function PedidoLineasEditor({
 }: Props) {
   const router = useRouter();
   const [lineas, setLineas] = useState(() =>
-    lineasIniciales.map(normalizarLineaPedido)
+    lineasIniciales.map(normalizarLineaPedido).map(recalcularLineaPreparacion)
   );
-  const lineasRef = useRef(lineas);
-  const [guardando, setGuardando] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [guardadoOk, setGuardadoOk] = useState(false);
 
-  useEffect(() => {
-    lineasRef.current = lineas;
-  }, [lineas]);
-
-  const total = useMemo(() => calcularTotalLineas(lineas), [lineas]);
-
-  async function sincronizarTotalPedido(nuevoTotal: number) {
-    await supabase
-      .from("pedidos")
-      .update({ total: nuevoTotal })
-      .eq("id", pedidoId);
-  }
-
-  async function persistirLinea(
-    linea: LineaPedidoEditable,
-    nuevasLineas: LineaPedidoEditable[]
-  ) {
-    setGuardando(linea.id);
-    setError(null);
-
-    const { error: updateError } = await supabase
-      .from("detalle_pedido")
-      .update({
-        cantidad_solicitada: linea.cantidad_solicitada,
-        unidad: linea.unidad,
-        peso_real: linea.peso_real,
-        precio_aplicado: linea.precio_aplicado,
-        precio_modificado: linea.precio_modificado,
-        subtotal: linea.subtotal,
-      })
-      .eq("id", linea.id);
-
-    if (updateError) {
-      setError("No se pudo guardar los cambios de la línea.");
-      setGuardando(null);
-      return;
-    }
-
-    const nuevoTotal = calcularTotalLineas(nuevasLineas);
-    await sincronizarTotalPedido(nuevoTotal);
-    setGuardando(null);
-    router.refresh();
-  }
+  const subtotal = useMemo(
+    () =>
+      redondearMoneda(
+        lineas.reduce((total, linea) => total + linea.subtotal, 0)
+      ),
+    [lineas]
+  );
 
   function actualizarLineaLocal(
     id: string,
     cambios: Partial<LineaPedidoEditable>
   ) {
+    setGuardadoOk(false);
     setLineas((prev) =>
       prev.map((linea) => {
         if (linea.id !== id) return linea;
@@ -100,40 +89,47 @@ export default function PedidoLineasEditor({
             actualizada.precio_aplicado !== actualizada.precio_lista;
         }
 
-        if ("unidad" in cambios && cambios.unidad === "kg") {
-          actualizada.peso_real = null;
-        }
-
-        return recalcularLineaPedido(actualizada);
+        return recalcularLineaPreparacion(actualizada);
       })
     );
   }
 
-  async function guardarLinea(id: string) {
-    const linea = lineasRef.current.find((item) => item.id === id);
-    if (!linea) return;
-    await persistirLinea(linea, lineasRef.current);
-  }
-
-  async function eliminarLinea(id: string) {
-    setGuardando(id);
+  async function guardarPreparacion() {
+    setGuardando(true);
     setError(null);
+    setGuardadoOk(false);
 
-    const { error: deleteError } = await supabase
-      .from("detalle_pedido")
-      .delete()
-      .eq("id", id);
+    for (const linea of lineas) {
+      const { error: updateError } = await supabase
+        .from("detalle_pedido")
+        .update({
+          peso_real: linea.peso_real,
+          precio_aplicado: linea.precio_aplicado,
+          precio_modificado: linea.precio_modificado,
+          subtotal: linea.subtotal,
+        })
+        .eq("id", linea.id);
 
-    if (deleteError) {
-      setError("No se pudo eliminar el producto.");
-      setGuardando(null);
+      if (updateError) {
+        setError("No se pudo guardar la preparación.");
+        setGuardando(false);
+        return;
+      }
+    }
+
+    const { error: pedidoError } = await supabase
+      .from("pedidos")
+      .update({ total: subtotal })
+      .eq("id", pedidoId);
+
+    if (pedidoError) {
+      setError("No se pudo actualizar el total del pedido.");
+      setGuardando(false);
       return;
     }
 
-    const nuevasLineas = lineas.filter((linea) => linea.id !== id);
-    setLineas(nuevasLineas);
-    await sincronizarTotalPedido(calcularTotalLineas(nuevasLineas));
-    setGuardando(null);
+    setGuardando(false);
+    setGuardadoOk(true);
     router.refresh();
   }
 
@@ -146,105 +142,81 @@ export default function PedidoLineasEditor({
   }
 
   return (
-    <>
+    <div className="space-y-4">
       {error ? (
-        <div className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">
+        <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">
           {error}
         </div>
       ) : null}
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[920px]">
-          <thead>
-            <tr className="border-b border-zinc-200 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
-              <th className="pb-3 pr-3">Producto</th>
-              <th className="pb-3 pr-3">Cantidad</th>
-              <th className="pb-3 pr-3">Precio de lista</th>
-              <th className="pb-3 pr-3">Precio aplicado</th>
-              <th className="pb-3 pr-3">Peso total (kg)</th>
-              <th className="pb-3 pr-3">Subtotal</th>
-              {!soloLectura ? <th className="pb-3">Acciones</th> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {lineas.map((linea) => {
-              const subtotalTexto = mostrarSubtotalLinea(
-                linea.unidad,
-                linea.subtotal,
-                linea.peso_real
-              );
-              const procesando = guardando === linea.id;
+      {guardadoOk ? (
+        <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 ring-1 ring-emerald-200">
+          Preparación guardada
+        </div>
+      ) : null}
 
-              return (
-                <tr key={linea.id} className="border-b border-zinc-100">
-                  <td className="py-3 pr-3">
-                    <p className="font-medium text-zinc-900">{linea.nombre}</p>
-                  </td>
-                  <td className="py-3 pr-3">
-                    <CantidadConUnidad
-                      cantidad={linea.cantidad_solicitada}
-                      unidad={linea.unidad}
-                      disabled={procesando}
-                      lectura={soloLectura}
-                      onCantidadChange={(cantidad) =>
-                        actualizarLineaLocal(linea.id, {
-                          cantidad_solicitada: cantidad,
-                        })
-                      }
-                      onUnidadChange={(unidad) =>
-                        actualizarLineaLocal(linea.id, { unidad })
-                      }
-                      onBlur={() => guardarLinea(linea.id)}
-                    />
-                  </td>
-                  <td className="py-3 pr-3 text-sm text-zinc-600">
-                    {formatMoneda(linea.precio_lista)}
-                  </td>
-                  <td className="py-3 pr-3">
-                    {soloLectura ? (
-                      <span className="text-sm text-zinc-700">
-                        {formatMoneda(linea.precio_aplicado)}
-                      </span>
-                    ) : (
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        inputMode="numeric"
-                        value={linea.precio_aplicado}
-                        disabled={procesando}
-                        onChange={(event) =>
-                          actualizarLineaLocal(linea.id, {
-                            precio_aplicado: normalizarPrecioAplicado(
-                              Number(event.target.value)
-                            ),
-                          })
-                        }
-                        onBlur={() => guardarLinea(linea.id)}
-                        className={`w-28 rounded-lg border px-2 py-1.5 text-sm text-zinc-900 disabled:opacity-60 ${
-                          linea.precio_modificado
-                            ? "border-amber-300 bg-amber-50"
-                            : "border-zinc-300"
-                        }`}
-                      />
-                    )}
-                  </td>
-                  <td className="py-3 pr-3">
-                    {esPesoTotalEditable(linea.unidad) ? (
-                      soloLectura ? (
-                        <span className="text-sm text-zinc-700">
-                          {linea.peso_real !== null
-                            ? `${linea.peso_real} kg`
-                            : "—"}
-                        </span>
+      <ul className="space-y-4">
+        {lineas.map((linea) => {
+          const preparada = lineaPreparada(linea.peso_real, linea.precio_aplicado);
+          const checklist = formatearCantidadSolicitada(
+            linea.cantidad_solicitada,
+            linea.unidad,
+            linea.nombre,
+            linea.cantidad_texto
+          );
+
+          return (
+            <li
+              key={linea.id}
+              className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-4"
+            >
+              <div className="flex items-start gap-3">
+                <span
+                  className="mt-0.5 text-xl leading-none"
+                  aria-hidden="true"
+                >
+                  {preparada ? "✅" : "⬜"}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-base font-semibold text-zinc-900">
+                    {checklist}
+                  </p>
+
+                  <div className="mt-4 space-y-3">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+                        Solicitado
+                      </p>
+                      <p className="mt-0.5 text-sm text-zinc-700">
+                        {mostrarCantidadSolicitada(
+                          linea.cantidad_solicitada,
+                          linea.cantidad_texto,
+                          linea.unidad
+                        )}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor={`peso-${linea.id}`}
+                        className="text-xs font-medium uppercase tracking-wide text-zinc-400"
+                      >
+                        Peso real (kg)
+                      </label>
+                      {soloLectura ? (
+                        <p className="mt-0.5 text-sm text-zinc-700">
+                          {linea.peso_real !== null ? `${linea.peso_real} kg` : "—"}
+                        </p>
                       ) : (
                         <input
+                          id={`peso-${linea.id}`}
                           type="number"
                           min="0"
                           step="0.001"
-                          placeholder="kg"
+                          inputMode="decimal"
+                          placeholder="0.000"
                           value={linea.peso_real ?? ""}
-                          disabled={procesando}
+                          disabled={guardando}
                           onChange={(event) => {
                             const valor = event.target.value;
                             actualizarLineaLocal(linea.id, {
@@ -252,52 +224,95 @@ export default function PedidoLineasEditor({
                                 valor === "" ? null : Number(valor),
                             });
                           }}
-                          onBlur={() => guardarLinea(linea.id)}
-                          className="w-24 rounded-lg border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 disabled:opacity-60"
+                          className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 disabled:opacity-60"
                         />
-                      )
-                    ) : (
-                      <span className="text-sm text-zinc-400">—</span>
-                    )}
-                  </td>
-                  <td className="py-3 pr-3 text-sm font-medium text-zinc-900">
-                    {subtotalTexto ? (
-                      subtotalTexto
-                    ) : (
-                      <span className="text-zinc-400">Pendiente</span>
-                    )}
-                  </td>
-                  {!soloLectura ? (
-                    <td className="py-3">
-                      <button
-                        type="button"
-                        onClick={() => eliminarLinea(linea.id)}
-                        disabled={guardando !== null}
-                        className="text-sm font-medium text-red-600 hover:text-red-800 disabled:opacity-50"
-                      >
-                        Quitar
-                      </button>
-                    </td>
-                  ) : null}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                      )}
+                    </div>
 
-      <div className="sticky bottom-4 mt-6 rounded-xl bg-zinc-900 px-6 py-4 text-white shadow-lg">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-sm text-zinc-300">Total del pedido</p>
-            <p className="text-3xl font-bold">{formatMoneda(total)}</p>
-            <p className="text-xs text-zinc-400">
-              {lineas.length} producto{lineas.length === 1 ? "" : "s"}
-              {guardando ? " · Guardando..." : ""}
-            </p>
-          </div>
+                    <div>
+                      <label
+                        htmlFor={`precio-${linea.id}`}
+                        className="text-xs font-medium uppercase tracking-wide text-zinc-400"
+                      >
+                        Precio aplicado
+                      </label>
+                      {soloLectura ? (
+                        <p className="mt-0.5 text-sm text-zinc-700">
+                          {formatMoneda(linea.precio_aplicado)}
+                        </p>
+                      ) : (
+                        <input
+                          id={`precio-${linea.id}`}
+                          type="number"
+                          min="0"
+                          step="1"
+                          inputMode="numeric"
+                          value={linea.precio_aplicado}
+                          disabled={guardando}
+                          onChange={(event) =>
+                            actualizarLineaLocal(linea.id, {
+                              precio_aplicado: normalizarPrecioAplicado(
+                                Number(event.target.value)
+                              ),
+                            })
+                          }
+                          className={`mt-1 w-full rounded-lg border bg-white px-3 py-2.5 text-base text-zinc-900 disabled:opacity-60 ${
+                            linea.precio_modificado
+                              ? "border-amber-300 bg-amber-50"
+                              : "border-zinc-300"
+                          }`}
+                        />
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between border-t border-zinc-200 pt-3">
+                      <span className="text-sm font-medium text-zinc-500">
+                        Total
+                      </span>
+                      <span className="text-lg font-bold tabular-nums text-zinc-900">
+                        {linea.subtotal > 0
+                          ? formatMoneda(linea.subtotal)
+                          : "$—"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="rounded-xl border border-zinc-200 bg-white p-4">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-zinc-500">Subtotal</span>
+          <span className="font-semibold tabular-nums text-zinc-900">
+            {formatMoneda(subtotal)}
+          </span>
+        </div>
+        <div className="mt-2 flex items-center justify-between border-t border-zinc-100 pt-2">
+          <span className="text-base font-semibold text-zinc-900">
+            Total del pedido
+          </span>
+          <span className="text-2xl font-bold tabular-nums text-zinc-900">
+            {formatMoneda(subtotal)}
+          </span>
         </div>
       </div>
-    </>
+
+      {!soloLectura ? (
+        <div className="space-y-3 pb-4">
+          <button
+            type="button"
+            onClick={guardarPreparacion}
+            disabled={guardando}
+            className="w-full rounded-xl bg-zinc-900 px-4 py-3.5 text-base font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {guardando ? "Guardando..." : "Guardar preparación"}
+          </button>
+          <PedidoMarcarListo />
+        </div>
+      ) : null}
+    </div>
   );
 }

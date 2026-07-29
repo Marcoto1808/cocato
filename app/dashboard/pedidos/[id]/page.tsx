@@ -5,12 +5,8 @@ import {
   detectarOrigenPedido,
   etiquetaOrigenPedido,
 } from "@/lib/pedido-origen";
-import { esPedidoEntregado } from "@/lib/pedido-estados";
-import {
-  PedidoEstadoBadge,
-  PedidoEstadoBotones,
-  PedidoEstadoProvider,
-} from "./PedidoEstadoActions";
+import { esPedidoEntregado, etiquetaEstado } from "@/lib/pedido-estados";
+import { PedidoEstadoProvider } from "./PedidoEstadoActions";
 import PedidoLineasEditor from "./PedidoLineasEditor";
 import { lineaPedidoDesdeDetalle } from "@/lib/pedido-lineas";
 
@@ -24,6 +20,7 @@ type LineaDetalle = {
   id: string;
   producto_id: string;
   cantidad_solicitada: number;
+  cantidad_texto: string | null;
   unidad: string;
   tipo_calculo: string | null;
   peso_real: number | null;
@@ -56,8 +53,16 @@ function resolverJoin<T>(valor: T | T[] | null | undefined): T | null {
   return Array.isArray(valor) ? (valor[0] ?? null) : valor;
 }
 
-function mapsUrl(direccion: string) {
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(direccion)}`;
+function formatearFechaPedido(fecha: string) {
+  const parsed = new Date(`${fecha}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return fecha;
+
+  return parsed.toLocaleDateString("es-MX", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 type Props = {
@@ -75,7 +80,7 @@ export default async function PedidoDetallePage({
   const { data: pedido, error } = await supabase
     .from("pedidos")
     .select(
-      "id, estado, fecha, mensaje_original, observaciones, total, clientes(nombre_negocio, propietario, direccion), detalle_pedido(id, producto_id, cantidad_solicitada, unidad, tipo_calculo, peso_real, precio_lista, precio_aplicado, precio_modificado, subtotal, productos(nombre))"
+      "id, estado, fecha, mensaje_original, observaciones, total, clientes(nombre_negocio, propietario, direccion), detalle_pedido(id, producto_id, cantidad_solicitada, cantidad_texto, unidad, tipo_calculo, peso_real, precio_lista, precio_aplicado, precio_modificado, subtotal, productos(nombre))"
     )
     .eq("id", id)
     .single();
@@ -90,20 +95,19 @@ export default async function PedidoDetallePage({
     lineaPedidoDesdeDetalle(linea)
   );
   const nombreNegocio = cliente?.nombre_negocio ?? "Cliente sin asignar";
-  const direccion = cliente?.direccion?.trim() || null;
   const pedidoEntregado = esPedidoEntregado(detalle.estado ?? "");
   const origen = detectarOrigenPedido(detalle.mensaje_original);
 
   return (
     <PedidoEstadoProvider pedidoId={id} estadoInicial={detalle.estado}>
-      <main className="min-h-screen bg-zinc-100 p-8">
+      <main className="min-h-screen bg-zinc-100 px-4 py-6 sm:px-6">
         <Link
           href={
             pedidoEntregado
               ? "/dashboard/pedidos/anteriores"
               : "/dashboard/pedidos"
           }
-          className="mb-6 inline-block text-sm text-zinc-500 hover:text-zinc-900"
+          className="mb-4 inline-block text-sm text-zinc-500 hover:text-zinc-900"
         >
           {pedidoEntregado
             ? "← Volver a Pedidos anteriores"
@@ -111,36 +115,53 @@ export default async function PedidoDetallePage({
         </Link>
 
         {creado ? (
-          <div className="mx-auto mb-6 max-w-4xl rounded-xl bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800 ring-1 ring-emerald-200">
+          <div className="mx-auto mb-4 max-w-lg rounded-xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 ring-1 ring-emerald-200">
             Pedido guardado correctamente
           </div>
         ) : null}
 
-        <div className="mx-auto max-w-4xl space-y-4">
-          <section className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
-            <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">
-              Origen: {etiquetaOrigenPedido(origen)}
-            </p>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight text-zinc-900">
-              {nombreNegocio}
-            </h1>
-            {cliente?.propietario?.trim() ? (
-              <p className="mt-1 text-sm text-zinc-500">
-                {cliente.propietario.trim()}
-              </p>
-            ) : null}
-            <div className="mt-4">
-              <PedidoEstadoBadge />
-            </div>
+        <div className="mx-auto max-w-lg space-y-4">
+          <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-zinc-200">
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+                  Cliente
+                </dt>
+                <dd className="mt-0.5 font-semibold text-zinc-900">
+                  {nombreNegocio}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+                  Estado
+                </dt>
+                <dd className="mt-0.5 font-medium text-zinc-900">
+                  {etiquetaEstado(detalle.estado)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+                  Fecha
+                </dt>
+                <dd className="mt-0.5 text-zinc-700">
+                  {formatearFechaPedido(detalle.fecha)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+                  Origen
+                </dt>
+                <dd className="mt-0.5 text-zinc-700">
+                  {etiquetaOrigenPedido(origen)}
+                </dd>
+              </div>
+            </dl>
           </section>
 
-          <section className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
-            <div className="mb-4 flex items-center justify-between gap-4">
-              <h2 className="text-lg font-semibold text-zinc-900">Productos</h2>
-              <p className="text-sm text-zinc-500">
-                {lineas.length} producto{lineas.length === 1 ? "" : "s"}
-              </p>
-            </div>
+          <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-zinc-200">
+            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+              Orden de preparación
+            </h2>
 
             <PedidoLineasEditor
               pedidoId={id}
@@ -148,40 +169,6 @@ export default async function PedidoDetallePage({
               soloLectura={pedidoEntregado}
             />
           </section>
-
-          {(direccion || (detalle.observaciones?.trim() ?? "") !== "") && (
-            <details className="rounded-xl bg-white shadow-sm ring-1 ring-zinc-200">
-              <summary className="cursor-pointer px-6 py-4 text-sm font-medium text-zinc-600">
-                Más información
-              </summary>
-              <div className="space-y-4 border-t border-zinc-100 px-6 py-4 text-sm text-zinc-700">
-                {direccion ? (
-                  <div>
-                    <p className="font-medium text-zinc-500">Dirección</p>
-                    <p className="mt-1">{direccion}</p>
-                    <a
-                      href={mapsUrl(direccion)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-2 inline-block text-zinc-900 underline decoration-zinc-300 underline-offset-2 hover:decoration-zinc-900"
-                    >
-                      Abrir en Maps
-                    </a>
-                  </div>
-                ) : null}
-                {detalle.observaciones?.trim() ? (
-                  <div>
-                    <p className="font-medium text-zinc-500">Observaciones</p>
-                    <p className="mt-1 whitespace-pre-wrap">
-                      {detalle.observaciones}
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-            </details>
-          )}
-
-          <PedidoEstadoBotones />
         </div>
       </main>
     </PedidoEstadoProvider>

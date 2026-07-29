@@ -323,6 +323,7 @@ CREATE TABLE public.detalle_pedido (
   pedido_id UUID NOT NULL REFERENCES public.pedidos (id) ON DELETE CASCADE,
   producto_id UUID NOT NULL REFERENCES public.productos (id) ON DELETE RESTRICT,
   cantidad_solicitada NUMERIC(10, 3) NOT NULL DEFAULT 1,
+  cantidad_texto TEXT,
   unidad TEXT NOT NULL DEFAULT 'kg',
   tipo_calculo TEXT NOT NULL DEFAULT 'POR_KILO',
   peso_real NUMERIC(10, 3),

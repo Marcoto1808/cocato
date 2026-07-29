@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS public.detalle_pedido (
   pedido_id UUID NOT NULL REFERENCES public.pedidos(id) ON DELETE CASCADE,
   producto_id UUID NOT NULL REFERENCES public.productos(id) ON DELETE RESTRICT,
   cantidad_solicitada NUMERIC(10, 3) NOT NULL DEFAULT 1,
+  cantidad_texto TEXT,
   unidad TEXT NOT NULL DEFAULT 'kg',
   peso_real NUMERIC(10, 3),
   precio_kg NUMERIC(10, 2) NOT NULL DEFAULT 0,
@@ -49,5 +50,6 @@ EXECUTE FUNCTION public.set_updated_at();
 
 COMMENT ON TABLE public.detalle_pedido IS 'Líneas de producto por pedido para preparación y cobro';
 COMMENT ON COLUMN public.detalle_pedido.cantidad_solicitada IS 'Cantidad pedida por el cliente';
+COMMENT ON COLUMN public.detalle_pedido.cantidad_texto IS 'Cantidad en texto libre cuando no es numérica';
 COMMENT ON COLUMN public.detalle_pedido.peso_real IS 'Peso real capturado en preparación (kg)';
 COMMENT ON COLUMN public.detalle_pedido.precio_kg IS 'Precio por kg al momento de agregar la línea';

@@ -2,6 +2,7 @@ import {
   calcularSubtotalLineaCaptura,
   redondearMoneda,
 } from "@/lib/pedido-calculo";
+import { cantidadNumericaParaCalculo, esCantidadTexto, importeFijoDesdeCantidad } from "@/lib/pedido-cantidad";
 import { normalizarUnidadCaptura } from "@/lib/pedido-unidades";
 import {
   esTipoCalculoProducto,
@@ -16,6 +17,7 @@ export type LineaPedidoEditable = {
   unidad: string;
   tipo_calculo: TipoCalculoProducto;
   cantidad_solicitada: number;
+  cantidad_texto: string | null;
   peso_real: number | null;
   precio_lista: number;
   precio_aplicado: number;
@@ -27,6 +29,7 @@ export type LineaDetallePedido = {
   id: string;
   producto_id?: string;
   cantidad_solicitada: number;
+  cantidad_texto?: string | null;
   unidad: string;
   tipo_calculo?: string | null;
   peso_real?: number | null;
@@ -52,6 +55,10 @@ export function normalizarLineaPedido(
     : tipoCalculoPorDefecto(linea.unidad);
 
   const cantidad = Number(linea.cantidad_solicitada);
+  const cantidad_texto = linea.cantidad_texto?.trim() || null;
+  const cantidadEsTexto = esCantidadTexto(cantidad_texto);
+  const importeFijo = importeFijoDesdeCantidad(cantidad_texto);
+  const cantidadCalculo = cantidadNumericaParaCalculo(cantidad, cantidad_texto);
   const precio_aplicado = Number(linea.precio_aplicado);
   const peso_real =
     linea.peso_real === null || linea.peso_real === undefined
@@ -63,14 +70,17 @@ export function normalizarLineaPedido(
     unidad: normalizarUnidadCaptura(linea.unidad),
     tipo_calculo,
     cantidad_solicitada: cantidad,
+    cantidad_texto,
     precio_lista: Number(linea.precio_lista),
     precio_aplicado,
     peso_real,
     subtotal: calcularSubtotalLineaCaptura(
       linea.unidad,
-      cantidad,
+      cantidadCalculo,
       precio_aplicado,
-      peso_real
+      peso_real,
+      cantidadEsTexto,
+      importeFijo
     ),
   };
 }
@@ -78,13 +88,22 @@ export function normalizarLineaPedido(
 export function recalcularLineaPedido(
   linea: LineaPedidoEditable
 ): LineaPedidoEditable {
+  const cantidadEsTexto = esCantidadTexto(linea.cantidad_texto);
+  const importeFijo = importeFijoDesdeCantidad(linea.cantidad_texto);
+  const cantidadCalculo = cantidadNumericaParaCalculo(
+    linea.cantidad_solicitada,
+    linea.cantidad_texto
+  );
+
   return {
     ...linea,
     subtotal: calcularSubtotalLineaCaptura(
       linea.unidad,
-      linea.cantidad_solicitada,
+      cantidadCalculo,
       linea.precio_aplicado,
-      linea.peso_real
+      linea.peso_real,
+      cantidadEsTexto,
+      importeFijo
     ),
   };
 }
@@ -110,6 +129,7 @@ export function lineaPedidoDesdeDetalle(
     unidad: normalizarUnidadCaptura(linea.unidad),
     tipo_calculo,
     cantidad_solicitada: Number(linea.cantidad_solicitada),
+    cantidad_texto: linea.cantidad_texto?.trim() || null,
     peso_real: linea.peso_real ?? null,
     precio_lista,
     precio_aplicado: Number(linea.precio_aplicado),

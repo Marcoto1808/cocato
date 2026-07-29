@@ -9,9 +9,19 @@ export function calcularSubtotalLineaCaptura(
   unidad: string,
   cantidad: number,
   precioAplicado: number,
-  pesoTotalKg: number | null = null
+  pesoTotalKg: number | null = null,
+  cantidadEsTexto = false,
+  importeFijo: number | null = null
 ): number {
+  if (importeFijo !== null && importeFijo > 0) {
+    return redondearMoneda(importeFijo);
+  }
+
   if (precioAplicado < 0) {
+    return 0;
+  }
+
+  if (cantidadEsTexto) {
     return 0;
   }
 
@@ -62,11 +72,22 @@ export function esPesoTotalEditable(unidad: string): boolean {
 export function mostrarSubtotalLinea(
   unidad: string,
   subtotal: number,
-  pesoTotalKg: number | null
+  pesoTotalKg: number | null,
+  cantidadEsTexto = false,
+  importeFijo: number | null = null
 ): string | null {
+  if (importeFijo !== null && importeFijo > 0) {
+    return formatMoneda(subtotal);
+  }
+
+  if (cantidadEsTexto) {
+    return null;
+  }
+
   if (subtotalPendientePeso(unidad, pesoTotalKg)) {
     return null;
   }
+
   return formatMoneda(subtotal);
 }
 

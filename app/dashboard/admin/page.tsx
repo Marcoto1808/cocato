@@ -84,11 +84,10 @@ function contarPorEstadoOperativo(pedidos: PedidoResumen[]) {
     (acc, pedido) => {
       const categoria = normalizarEstado(pedido.estado);
       if (categoria === "pendiente") acc.pendiente += 1;
-      if (categoria === "preparando") acc.preparando += 1;
       if (categoria === "listo") acc.listo += 1;
       return acc;
     },
-    { pendiente: 0, preparando: 0, listo: 0 }
+    { pendiente: 0, listo: 0 }
   );
 }
 
@@ -362,13 +361,12 @@ export default async function AdminDashboardPage() {
               icono="📦"
               valor={String(pedidosOperativos.length)}
               titulo="Pedidos activos"
-              descripcion="Pendiente, preparando y listo"
+              descripcion="Pendientes y listos"
               borde="border-l-amber-500"
               valorClassName="text-amber-600"
               resumen={
                 <>
                   <p>{desgloseOperativo.pendiente} pendientes</p>
-                  <p>{desgloseOperativo.preparando} preparando</p>
                   <p>{desgloseOperativo.listo} listos</p>
                 </>
               }

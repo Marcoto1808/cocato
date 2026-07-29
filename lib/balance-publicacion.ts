@@ -270,6 +270,10 @@ export async function publicarBalanceEnSupabase(
     balanceId = balance.id;
   }
 
+  if (!balanceId) {
+    throw new PublicacionBalanceError("No se pudo obtener el identificador del balance.");
+  }
+
   const { error: deleteRendimientoError } = await supabase
     .from("balance_rendimiento")
     .delete()

@@ -1,32 +1,22 @@
-export type EstadoCategoria =
-  | "pendiente"
-  | "preparando"
-  | "listo"
-  | "reparto"
-  | "entregado";
+export type EstadoCategoria = "pendiente" | "listo" | "entregado";
 
-export const ESTADOS_ACTIVOS: EstadoCategoria[] = [
-  "pendiente",
-  "preparando",
-  "listo",
-  "reparto",
-];
+export const ESTADOS_ACTIVOS: EstadoCategoria[] = ["pendiente", "listo"];
 
 export function normalizarEstado(estado: string): EstadoCategoria | null {
   const valor = estado.toLowerCase().trim();
 
-  if (valor.includes("pendiente")) return "pendiente";
-  if (valor.includes("listo")) return "listo";
-  if (valor.includes("preparando")) return "preparando";
-  if (valor.includes("reparto")) return "reparto";
   if (valor.includes("entregado")) return "entregado";
+  if (valor.includes("listo") || valor.includes("reparto")) return "listo";
+  if (valor.includes("pendiente") || valor.includes("preparando")) {
+    return "pendiente";
+  }
 
   return null;
 }
 
 export function esPedidoActivo(estado: string) {
   const categoria = normalizarEstado(estado);
-  return categoria !== null && categoria !== "entregado";
+  return categoria === "pendiente" || categoria === "listo";
 }
 
 export function esPedidoEntregado(estado: string) {
@@ -34,17 +24,12 @@ export function esPedidoEntregado(estado: string) {
 }
 
 export function esPedidoOperativo(estado: string) {
-  const categoria = normalizarEstado(estado);
-
-  return (
-    categoria === "pendiente" ||
-    categoria === "preparando" ||
-    categoria === "listo"
-  );
+  return esPedidoActivo(estado);
 }
 
+/** Compatibilidad: reparto ahora cuenta como listo. */
 export function esPedidoEnReparto(estado: string) {
-  return normalizarEstado(estado) === "reparto";
+  return estado.toLowerCase().includes("reparto");
 }
 
 export function etiquetaEstado(estado: string | null) {
@@ -55,12 +40,8 @@ export function etiquetaEstado(estado: string | null) {
   switch (categoria) {
     case "pendiente":
       return "🟡 Pendiente";
-    case "preparando":
-      return "🟡 Preparando";
     case "listo":
       return "🟢 Listo";
-    case "reparto":
-      return "🚚 En reparto";
     case "entregado":
       return "✅ Entregado";
     default:

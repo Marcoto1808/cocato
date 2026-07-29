@@ -1,13 +1,17 @@
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { obtenerRutaDashboardServidor } from "@/lib/navegacion-dashboard-server";
+import { esMismoDiaCalendario } from "@/lib/pedido-fecha";
 import {
-  esPedidoActivo,
-  etiquetaEstado,
+  esPedidoEntregado,
+  esPedidoOperativo,
   normalizarEstado,
   type EstadoCategoria,
 } from "@/lib/pedido-estados";
-import { formatMoneda } from "@/lib/pedido-calculo";
+import PedidosTarjetasEstado, {
+  type FiltroTarjetaEstado,
+  type PedidoResumenTarjeta,
+} from "@/components/pedidos/PedidosTarjetasEstado";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +28,7 @@ type Pedido = {
   cliente_id: string | null;
   estado: string;
   fecha: string;
+  updated_at: string;
   total: number | null;
   clientes: ClienteJoin | ClienteJoin[] | null;
   detalle_pedido: { count: number }[] | { count: number } | null;
@@ -36,25 +41,28 @@ function resolverCliente(
   return Array.isArray(clientes) ? (clientes[0] ?? null) : clientes;
 }
 
-
-type EstadoCategoriaActivo = Exclude<EstadoCategoria, "entregado">;
+type EstadoCategoriaTablero = EstadoCategoria;
 
 function contarPorEstado(pedidos: Pedido[]) {
   return pedidos.reduce(
     (acc, pedido) => {
       const categoria = normalizarEstado(pedido.estado);
 
-      if (categoria && categoria !== "entregado") {
-        acc[categoria] += 1;
+      if (categoria === "pendiente") acc.pendiente += 1;
+      if (categoria === "listo") acc.listo += 1;
+      if (
+        categoria === "entregado" &&
+        esMismoDiaCalendario(pedido.updated_at)
+      ) {
+        acc.entregado += 1;
       }
 
       return acc;
     },
     {
       pendiente: 0,
-      preparando: 0,
       listo: 0,
-      reparto: 0,
+      entregado: 0,
     }
   );
 }
@@ -64,9 +72,7 @@ function nombreCliente(pedido: Pedido) {
   return cliente?.nombre_negocio ?? "Cliente sin asignar";
 }
 
-function contarLineas(
-  detalle: Pedido["detalle_pedido"]
-): number {
+function contarLineas(detalle: Pedido["detalle_pedido"]): number {
   if (!detalle) return 0;
   if (Array.isArray(detalle)) {
     return detalle[0]?.count ?? 0;
@@ -74,15 +80,44 @@ function contarLineas(
   return detalle.count ?? 0;
 }
 
-function formatFechaCorta(fecha: string) {
-  return new Date(fecha).toLocaleDateString("es-MX", {
-    day: "numeric",
-    month: "short",
-  });
+function pedidoAResumen(pedido: Pedido): PedidoResumenTarjeta {
+  return {
+    id: pedido.id,
+    nombreCliente: nombreCliente(pedido),
+    total: pedido.total,
+    lineas: contarLineas(pedido.detalle_pedido),
+    fecha: pedido.fecha,
+  };
+}
+
+function agruparPedidosPorEstado(pedidos: Pedido[]) {
+  const grupos: Record<EstadoCategoriaTablero, PedidoResumenTarjeta[]> = {
+    pendiente: [],
+    listo: [],
+    entregado: [],
+  };
+
+  for (const pedido of pedidos) {
+    const categoria = normalizarEstado(pedido.estado);
+
+    if (categoria === "pendiente" || categoria === "listo") {
+      grupos[categoria].push(pedidoAResumen(pedido));
+      continue;
+    }
+
+    if (
+      categoria === "entregado" &&
+      esMismoDiaCalendario(pedido.updated_at)
+    ) {
+      grupos.entregado.push(pedidoAResumen(pedido));
+    }
+  }
+
+  return grupos;
 }
 
 const FILTROS: {
-  clave: EstadoCategoriaActivo;
+  clave: EstadoCategoriaTablero;
   etiqueta: string;
   contador: keyof ReturnType<typeof contarPorEstado>;
   color: string;
@@ -96,70 +131,33 @@ const FILTROS: {
     anillo: "ring-amber-500",
   },
   {
-    clave: "preparando",
-    etiqueta: "🟡 Preparando",
-    contador: "preparando",
-    color: "text-amber-600",
-    anillo: "ring-amber-500",
-  },
-  {
     clave: "listo",
-    etiqueta: "🟢 Listo",
+    etiqueta: "🟢 Listos",
     contador: "listo",
     color: "text-emerald-600",
     anillo: "ring-emerald-500",
   },
   {
-    clave: "reparto",
-    etiqueta: "🚚 Reparto",
-    contador: "reparto",
-    color: "text-blue-600",
-    anillo: "ring-blue-500",
+    clave: "entregado",
+    etiqueta: "✅ Entregados",
+    contador: "entregado",
+    color: "text-zinc-600",
+    anillo: "ring-zinc-400",
   },
 ];
-
-function esEstadoCategoria(
-  valor: string | undefined
-): valor is EstadoCategoriaActivo {
-  return FILTROS.some((filtro) => filtro.clave === valor);
-}
-
-function urlPedidos(params: {
-  estado?: EstadoCategoriaActivo;
-  actualizado?: string;
-  creado?: string;
-}) {
-  const search = new URLSearchParams();
-
-  if (params.estado) {
-    search.set("estado", params.estado);
-  }
-
-  if (params.actualizado) {
-    search.set("actualizado", params.actualizado);
-  }
-
-  if (params.creado) {
-    search.set("creado", params.creado);
-  }
-
-  const query = search.toString();
-  return query ? `/dashboard/pedidos?${query}` : "/dashboard/pedidos";
-}
 
 export default async function PedidosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ actualizado?: string; estado?: string; creado?: string }>;
+  searchParams: Promise<{ actualizado?: string; creado?: string }>;
 }) {
-  const { actualizado, estado: estadoParam, creado } = await searchParams;
-  const filtroActivo = esEstadoCategoria(estadoParam) ? estadoParam : null;
+  const { actualizado, creado } = await searchParams;
   const rutaDashboard = await obtenerRutaDashboardServidor();
 
   const { data: pedidos, error } = await supabase
     .from("pedidos")
     .select(
-      "id, cliente_id, estado, fecha, total, clientes(nombre_negocio), detalle_pedido(count)"
+      "id, cliente_id, estado, fecha, updated_at, total, clientes(nombre_negocio), detalle_pedido(count)"
     )
     .order("fecha", { ascending: false });
 
@@ -180,15 +178,22 @@ export default async function PedidosPage({
     );
   }
 
-  const lista = ((pedidos ?? []) as Pedido[]).filter((pedido) =>
-    esPedidoActivo(pedido.estado)
+  const lista = (pedidos ?? []) as Pedido[];
+  const listaTablero = lista.filter(
+    (pedido) =>
+      esPedidoOperativo(pedido.estado) ||
+      (esPedidoEntregado(pedido.estado) &&
+        esMismoDiaCalendario(pedido.updated_at))
   );
   const contadores = contarPorEstado(lista);
-  const listaFiltrada = filtroActivo
-    ? lista.filter(
-        (pedido) => normalizarEstado(pedido.estado) === filtroActivo
-      )
-    : lista;
+  const pedidosPorEstado = agruparPedidosPorEstado(lista);
+  const tarjetas: FiltroTarjetaEstado[] = FILTROS.map((filtro) => ({
+    clave: filtro.clave,
+    etiqueta: filtro.etiqueta,
+    contador: contadores[filtro.contador],
+    color: filtro.color,
+    anillo: filtro.anillo,
+  }));
 
   return (
     <main className="min-h-screen bg-zinc-100 p-8">
@@ -221,98 +226,28 @@ export default async function PedidosPage({
         </div>
       </div>
 
-      {creado && (
+      {creado ? (
         <div className="mb-6 rounded-xl bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800 ring-1 ring-emerald-200">
           Pedido creado correctamente
         </div>
-      )}
+      ) : null}
 
-      {actualizado && (
+      {actualizado ? (
         <div className="mb-6 rounded-xl bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800 ring-1 ring-emerald-200">
           Pedido actualizado a {decodeURIComponent(actualizado)}
         </div>
-      )}
+      ) : null}
 
-      <div className="mb-4">
-        <Link
-          href={urlPedidos({ actualizado })}
-          className={`inline-flex rounded-full px-4 py-2 text-sm font-medium transition ${
-            filtroActivo
-              ? "bg-white text-zinc-700 ring-1 ring-zinc-200 hover:bg-zinc-50"
-              : "bg-black text-white"
-          }`}
-        >
-          Todos
-        </Link>
-      </div>
+      <PedidosTarjetasEstado
+        filtros={tarjetas}
+        pedidosPorEstado={pedidosPorEstado}
+      />
 
-      <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {FILTROS.map((filtro) => {
-          const activo = filtroActivo === filtro.clave;
-
-          return (
-            <Link
-              key={filtro.clave}
-              href={urlPedidos({
-                estado: filtro.clave,
-                actualizado,
-              })}
-              className={`rounded-xl bg-white p-5 shadow-sm transition hover:shadow-md ${
-                activo
-                  ? `ring-2 ${filtro.anillo}`
-                  : "ring-1 ring-zinc-200 hover:ring-zinc-300"
-              }`}
-            >
-              <p className="text-sm text-zinc-500">{filtro.etiqueta}</p>
-              <p className={`mt-2 text-3xl font-bold ${filtro.color}`}>
-                {contadores[filtro.contador]}
-              </p>
-            </Link>
-          );
-        })}
-      </div>
-
-      {listaFiltrada.length > 0 ? (
-        <div className="mx-auto max-w-2xl space-y-3">
-          {listaFiltrada.map((pedido) => {
-            const lineas = contarLineas(pedido.detalle_pedido);
-
-            return (
-              <Link
-                key={pedido.id}
-                href={`/dashboard/pedidos/${pedido.id}`}
-                className="block rounded-xl bg-white px-6 py-5 shadow-sm ring-1 ring-zinc-200 transition hover:bg-zinc-50 hover:shadow-md hover:ring-zinc-300"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xl font-bold text-zinc-900">
-                      {nombreCliente(pedido)}
-                    </p>
-                    <p className="mt-2 text-sm font-medium text-zinc-700">
-                      {etiquetaEstado(pedido.estado)}
-                    </p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-xl font-bold text-zinc-900">
-                      {formatMoneda(pedido.total ?? 0)}
-                    </p>
-                    <p className="mt-1 text-xs text-zinc-500">
-                      {lineas} producto{lineas === 1 ? "" : "s"} ·{" "}
-                      {formatFechaCorta(pedido.fecha)}
-                    </p>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-      ) : (
+      {listaTablero.length === 0 ? (
         <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
-          {filtroActivo
-            ? "No hay pedidos en este estado."
-            : "No hay pedidos activos."}
+          No hay pedidos en el tablero.
         </div>
-      )}
+      ) : null}
     </main>
   );
 }

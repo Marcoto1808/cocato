@@ -12,26 +12,7 @@ import {
   esPedidoEntregado,
   etiquetaEstado,
   normalizarEstado,
-  type EstadoCategoria,
 } from "@/lib/pedido-estados";
-
-const ESTADOS = [
-  {
-    valor: "Preparando",
-    etiqueta: "PREPARANDO",
-    categoria: "preparando" as const,
-  },
-  {
-    valor: "En reparto",
-    etiqueta: "En reparto",
-    categoria: "reparto" as const,
-  },
-  {
-    valor: "Entregado",
-    etiqueta: "Entregado",
-    categoria: "entregado" as const,
-  },
-];
 
 type PedidoEstadoContextValue = {
   estado: string | null;
@@ -45,11 +26,6 @@ const PedidoEstadoContext = createContext<PedidoEstadoContextValue | null>(
   null
 );
 
-function estadoEsActivo(estadoActual: string | null, valor: string) {
-  if (!estadoActual) return false;
-  return estadoActual.toLowerCase() === valor.toLowerCase();
-}
-
 function estiloEstado(estado: string | null) {
   if (!estado) {
     return "bg-zinc-100 text-zinc-600 ring-zinc-200";
@@ -60,35 +36,12 @@ function estiloEstado(estado: string | null) {
   switch (categoria) {
     case "pendiente":
       return "bg-amber-100 text-amber-800 ring-amber-200";
-    case "preparando":
-      return "bg-amber-100 text-amber-800 ring-amber-200";
     case "listo":
       return "bg-emerald-100 text-emerald-800 ring-emerald-200";
-    case "reparto":
-      return "bg-blue-100 text-blue-800 ring-blue-200";
     case "entregado":
       return "bg-emerald-100 text-emerald-800 ring-emerald-200";
     default:
       return "bg-zinc-100 text-zinc-600 ring-zinc-200";
-  }
-}
-
-function estiloBoton(categoria: EstadoCategoria, activo: boolean) {
-  if (activo) {
-    return "cursor-default border-zinc-300 bg-zinc-100 text-zinc-500";
-  }
-
-  switch (categoria) {
-    case "preparando":
-      return "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100";
-    case "listo":
-      return "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100";
-    case "reparto":
-      return "border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100";
-    case "entregado":
-      return "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100";
-    default:
-      return "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50";
   }
 }
 
@@ -180,51 +133,40 @@ export function PedidoEstadoBadge() {
   );
 }
 
-export function PedidoEstadoBotones() {
+export function PedidoMarcarListo() {
   const { estado, cargando, confirmacion, error, cambiarEstado } =
     usePedidoEstado();
 
-  return (
-    <section className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
-      <h2 className="mb-4 text-sm font-medium uppercase tracking-wide text-zinc-400">
-        Cambiar estado
-      </h2>
+  const categoria = estado ? normalizarEstado(estado) : null;
+  const yaListo = categoria === "listo" || categoria === "entregado";
+  const procesando = cargando === "Listo";
 
-      {confirmacion && (
-        <div className="mb-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 ring-1 ring-emerald-200">
+  return (
+    <div>
+      {confirmacion ? (
+        <div className="mb-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 ring-1 ring-emerald-200">
           {confirmacion}
         </div>
-      )}
+      ) : null}
 
-      {error && (
-        <div className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm font-medium text-red-700 ring-1 ring-red-200">
+      {error ? (
+        <div className="mb-3 rounded-lg bg-red-50 px-4 py-3 text-sm font-medium text-red-700 ring-1 ring-red-200">
           {error}
         </div>
-      )}
+      ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        {ESTADOS.map(({ valor, etiqueta, categoria }) => {
-          const activo = estadoEsActivo(estado, valor);
-          const procesando = cargando === valor;
-
-          return (
-            <button
-              key={valor}
-              type="button"
-              disabled={activo || cargando !== null}
-              onClick={() => cambiarEstado(valor)}
-              className={`rounded-lg border px-4 py-3 text-sm font-medium transition disabled:cursor-not-allowed ${estiloBoton(categoria, activo)}`}
-            >
-              {procesando ? "Guardando..." : etiqueta}
-              {activo && (
-                <span className="mt-1 block text-xs font-normal">
-                  Estado actual
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-    </section>
+      <button
+        type="button"
+        disabled={yaListo || cargando !== null}
+        onClick={() => cambiarEstado("Listo")}
+        className="w-full rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3.5 text-base font-semibold text-emerald-900 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {procesando
+          ? "Guardando..."
+          : yaListo
+            ? "Pedido marcado como listo"
+            : "Marcar como listo"}
+      </button>
+    </div>
   );
 }
