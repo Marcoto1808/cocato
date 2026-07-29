@@ -343,6 +343,12 @@ export default async function AdminDashboardPage() {
             >
               + Nuevo producto
             </Link>
+            <Link
+              href="/balance"
+              className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-900 transition hover:bg-emerald-100"
+            >
+              Balance
+            </Link>
           </div>
         </section>
 
@@ -500,6 +506,12 @@ export default async function AdminDashboardPage() {
               titulo="Pedidos"
               icono="📦"
               descripcion="Bandeja operativa"
+            />
+            <AccesoRapido
+              href="/balance"
+              titulo="Balance"
+              icono="⚖️"
+              descripcion="Precios de venta diarios"
             />
             <AccesoRapido
               href="/usuarios"
