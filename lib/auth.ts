@@ -32,17 +32,50 @@ function claveSesion() {
   return new TextEncoder().encode(obtenerSecretoSesion());
 }
 
+function logAuth(mensaje: string, detalle?: unknown) {
+  if (detalle !== undefined) {
+    console.log(`[auth] ${mensaje}`, detalle);
+    return;
+  }
+
+  console.log(`[auth] ${mensaje}`);
+}
+
 export async function crearTokenSesion(usuario: SesionUsuario) {
-  return new SignJWT({
+  logAuth("crearTokenSesion: iniciando", {
     id: usuario.id,
-    nombre: usuario.nombre,
     usuario: usuario.usuario,
     rol: usuario.rol,
-  })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime(`${SESSION_MAX_AGE_SEGUNDOS}s`)
-    .sign(claveSesion());
+    sessionSecretConfigurado: Boolean(process.env.SESSION_SECRET?.trim()),
+    nodeEnv: process.env.NODE_ENV ?? "undefined",
+  });
+
+  try {
+    const token = await new SignJWT({
+      id: usuario.id,
+      nombre: usuario.nombre,
+      usuario: usuario.usuario,
+      rol: usuario.rol,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime(`${SESSION_MAX_AGE_SEGUNDOS}s`)
+      .sign(claveSesion());
+
+    logAuth("crearTokenSesion: token generado correctamente", {
+      longitudToken: token.length,
+    });
+
+    return token;
+  } catch (error) {
+    logAuth("crearTokenSesion: error al generar token", {
+      error:
+        error instanceof Error
+          ? { name: error.name, message: error.message, stack: error.stack }
+          : error,
+    });
+    throw error;
+  }
 }
 
 export async function verificarTokenSesion(

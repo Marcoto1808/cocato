@@ -3,17 +3,44 @@ function capitalizar(texto: string) {
   return texto.charAt(0).toUpperCase() + texto.slice(1);
 }
 
-export function generarSaludo(nombreUsuario?: string | null) {
-  if (!nombreUsuario?.trim()) {
+const NOMBRES_RESERVADOS = new Set([
+  "administrador",
+  "trabajador",
+  "colaborador",
+  "admin",
+]);
+
+export function nombreParaSaludo(
+  nombre?: string | null,
+  usuario?: string | null
+) {
+  const nombreLimpio = nombre?.trim();
+  if (
+    nombreLimpio &&
+    !NOMBRES_RESERVADOS.has(nombreLimpio.toLowerCase())
+  ) {
+    return nombreLimpio;
+  }
+
+  const usuarioLimpio = usuario?.trim();
+  return usuarioLimpio ? capitalizar(usuarioLimpio) : null;
+}
+
+export function generarSaludo(
+  nombre?: string | null,
+  usuario?: string | null
+) {
+  const nombreSaludo = nombreParaSaludo(nombre, usuario);
+
+  if (!nombreSaludo) {
     return "Bienvenido a COCATO";
   }
 
   const hora = new Date().getHours();
-  const nombre = capitalizar(nombreUsuario.trim());
 
-  if (hora < 12) return `Buenos días, ${nombre}.`;
-  if (hora < 19) return `Buenas tardes, ${nombre}.`;
-  return `Buenas noches, ${nombre}.`;
+  if (hora < 12) return `Buenos días, ${nombreSaludo}.`;
+  if (hora < 19) return `Buenas tardes, ${nombreSaludo}.`;
+  return `Buenas noches, ${nombreSaludo}.`;
 }
 
 export function esFechaHoy(fechaIso: string) {

@@ -1,24 +1,15 @@
+import type { Producto } from "@/lib/productos";
 import {
   ETIQUETAS_TIPO_CALCULO,
-  type TipoCalculoProducto,
 } from "@/lib/tipo-calculo-producto";
-
-export type Producto = {
-  id: string;
-  nombre: string;
-  precio_kg: number;
-  unidad: string;
-  categoria: string;
-  subcategoria: string;
-  tipo_calculo: TipoCalculoProducto;
-  activo: boolean;
-};
 
 type Props = {
   productos: Producto[];
   onEditar: (producto: Producto) => void;
   onToggleActivo: (producto: Producto) => void;
+  alternandoId?: string | null;
   sinResultados?: boolean;
+  hayFiltrosActivos?: boolean;
 };
 
 function formatPrecio(precio: number) {
@@ -45,14 +36,16 @@ export default function ProductosTable({
   productos,
   onEditar,
   onToggleActivo,
+  alternandoId = null,
   sinResultados = false,
+  hayFiltrosActivos = false,
 }: Props) {
   if (productos.length === 0) {
     return (
       <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
-        {sinResultados
+        {sinResultados && hayFiltrosActivos
           ? "No se encontraron productos con ese criterio."
-          : "No hay productos registrados."}
+          : "No hay productos registrados. Ejecuta sql/seed_productos.sql si acabas de instalar el esquema."}
       </div>
     );
   }
@@ -70,7 +63,7 @@ export default function ProductosTable({
                 Categoría
               </th>
               <th className="p-3 text-left text-sm font-medium text-zinc-700">
-                Precio / kg
+                Precio ref. / kg
               </th>
               <th className="p-3 text-left text-sm font-medium text-zinc-700">
                 Unidad
@@ -131,13 +124,18 @@ export default function ProductosTable({
                     <button
                       type="button"
                       onClick={() => onToggleActivo(producto)}
-                      className={`rounded-lg px-3 py-1.5 text-sm font-medium text-white transition ${
+                      disabled={alternandoId === producto.id}
+                      className={`rounded-lg px-3 py-1.5 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
                         producto.activo
                           ? "bg-zinc-700 hover:bg-zinc-800"
                           : "bg-emerald-600 hover:bg-emerald-700"
                       }`}
                     >
-                      {producto.activo ? "Desactivar" : "Activar"}
+                      {alternandoId === producto.id
+                        ? "Actualizando..."
+                        : producto.activo
+                          ? "Desactivar"
+                          : "Activar"}
                     </button>
                   </div>
                 </td>

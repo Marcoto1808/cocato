@@ -1,7 +1,10 @@
 -- Seed: catálogo maestro COCATO
--- Ejecutar después de sql/create_productos.sql
+-- Ejecutar después de sql/schema_cocato.sql
+--
+-- ADVERTENCIA: TRUNCATE CASCADE elimina filas dependientes (listas, pedidos, etc.)
+-- que referencien productos. Usar solo en instalación nueva o reset controlado.
 
-TRUNCATE TABLE public.productos;
+TRUNCATE TABLE public.productos RESTART IDENTITY CASCADE;
 
 INSERT INTO public.productos (
   nombre,
@@ -153,6 +156,7 @@ INSERT INTO public.productos (
 ('Milanesa de pierna', 'Cerdo', 'Corte', 'kg', 0, true, 331),
 ('Milanesa de lomo', 'Cerdo', 'Corte', 'kg', 0, true, 332),
 ('Molida de cerdo especial', 'Cerdo', 'Corte', 'kg', 0, true, 333),
+('Retazo', 'Cerdo', 'Corte', 'kg', 0, true, 334),
 
 -- =========================
 -- CERDO · EMBUTIDOS
@@ -204,6 +208,7 @@ INSERT INTO public.productos (
 ('Lengua de cerdo', 'Cerdo', 'Vísceras', 'pieza', 0, true, 511),
 ('Sesos de cerdo', 'Cerdo', 'Vísceras', 'kg', 0, true, 512),
 ('Bofe de cerdo', 'Cerdo', 'Vísceras', 'kg', 0, true, 513),
+('Maletas', 'Cerdo', 'Vísceras', 'pieza', 0, true, 514),
 
 -- =========================
 -- OBRADOR
@@ -258,3 +263,28 @@ INSERT INTO public.productos (
 ('Carne para pozole', 'Cerdo', 'Obrador', 'kg', 0, true, 648),
 ('Carne para menudo', 'Res', 'Obrador', 'kg', 0, true, 649),
 ('Pierna rellena', 'Cerdo', 'Obrador', 'pieza', 0, true, 650);
+
+-- tipo_calculo según unidad (schema default = POR_KILO)
+UPDATE public.productos
+SET tipo_calculo = 'POR_PESO_REAL'
+WHERE unidad = 'pieza';
+
+UPDATE public.productos
+SET tipo_calculo = 'PRECIO_FIJO'
+WHERE unidad IN ('paquete', 'caja');
+
+-- codigo_balance: cortes del módulo Balance (solo Cerdo)
+UPDATE public.productos AS p
+SET codigo_balance = v.codigo
+FROM (
+  VALUES
+    ('Costilla', 'Cerdo', 'costilla'),
+    ('Pierna', 'Cerdo', 'pierna'),
+    ('Espaldilla', 'Cerdo', 'espaldilla'),
+    ('Espinazo', 'Cerdo', 'espinazo'),
+    ('Cabeza', 'Cerdo', 'cabeza'),
+    ('Manitas', 'Cerdo', 'manitas'),
+    ('Maletas', 'Cerdo', 'maletas'),
+    ('Retazo', 'Cerdo', 'retazo')
+) AS v(nombre, categoria, codigo)
+WHERE p.nombre = v.nombre AND p.categoria = v.categoria;

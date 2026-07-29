@@ -1,55 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import type { PostgrestError } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  CATEGORIAS_PRODUCTO,
+  SUBCATEGORIAS_PRODUCTO,
+  UNIDADES_PRODUCTO,
+  actualizarProducto,
+  cambiarEstadoProducto,
+  contarProductos,
+  crearProducto,
+  formatearErrorProducto,
+  listarProductos,
+  type Producto,
+  type ProductoInput,
+} from "@/lib/productos";
 import {
   DESCRIPCION_TIPO_CALCULO,
   ETIQUETAS_TIPO_CALCULO,
   TIPOS_CALCULO,
-  esTipoCalculoProducto,
   tipoCalculoPorDefecto,
   type TipoCalculoProducto,
 } from "@/lib/tipo-calculo-producto";
-import ProductosTable, { type Producto } from "@/components/productos/ProductosTable";
+import ProductosTable from "@/components/productos/ProductosTable";
 import VolverAlDashboardLink from "@/components/navegacion/VolverAlDashboardLink";
-
-// Deben coincidir con los CHECK constraints de public.productos.
-const CATEGORIAS = ["Res", "Cerdo"] as const;
-const SUBCATEGORIAS = [
-  "Corte",
-  "Embutido",
-  "Vísceras",
-  "Huesos",
-  "Grasa",
-  "Obrador",
-] as const;
-const UNIDADES = ["kg", "pieza", "paquete", "caja"] as const;
-
-const COLUMNAS_PRODUCTO =
-  "id, nombre, precio_kg, unidad, categoria, subcategoria, tipo_calculo, activo";
-
-const COLUMNAS_PRODUCTO_SIN_TIPO_CALCULO =
-  "id, nombre, precio_kg, unidad, categoria, subcategoria, activo";
-
-type ProductoDb = Omit<Producto, "tipo_calculo"> & {
-  tipo_calculo?: TipoCalculoProducto | null;
-};
-
-function esColumnaInexistente(error: PostgrestError | null): boolean {
-  return error?.code === "42703";
-}
-
-function normalizarProducto(producto: ProductoDb): Producto {
-  return {
-    ...producto,
-    tipo_calculo:
-      producto.tipo_calculo && esTipoCalculoProducto(producto.tipo_calculo)
-        ? producto.tipo_calculo
-        : tipoCalculoPorDefecto(producto.unidad),
-  };
-}
 
 type FormularioProducto = {
   nombre: string;
@@ -71,28 +44,17 @@ const FORMULARIO_VACIO: FormularioProducto = {
   activo: true,
 };
 
-function formatearErrorSupabase(error: PostgrestError | null): string {
-  if (!error) {
-    return "Sin respuesta de Supabase.";
-  }
-
-  return [
-    error.message,
-    error.details ? `Detalle: ${error.details}` : null,
-    error.hint ? `Hint: ${error.hint}` : null,
-    error.code ? `Código: ${error.code}` : null,
-  ]
-    .filter(Boolean)
-    .join(" | ");
-}
-
 export default function ProductosPage() {
   const [productos, setProductos] = useState<Producto[]>([]);
+  const [totales, setTotales] = useState({ total: 0, activos: 0, inactivos: 0 });
   const [busqueda, setBusqueda] = useState("");
+  const [busquedaAplicada, setBusquedaAplicada] = useState("");
   const [categoriaFiltro, setCategoriaFiltro] = useState("Todas");
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
+  const [alternandoId, setAlternandoId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mensajeExito, setMensajeExito] = useState<string | null>(null);
   const [modalAbierto, setModalAbierto] = useState(false);
   const [productoEditando, setProductoEditando] = useState<Producto | null>(
     null
@@ -100,46 +62,68 @@ export default function ProductosPage() {
   const [formulario, setFormulario] =
     useState<FormularioProducto>(FORMULARIO_VACIO);
 
-  useEffect(() => {
-    cargarProductos();
-  }, []);
-
-  async function cargarProductos() {
+  const cargarProductos = useCallback(async () => {
     setCargando(true);
     setError(null);
 
-    let { data, error: queryError } = await supabase
-      .from("productos")
-      .select(COLUMNAS_PRODUCTO)
-      .order("nombre", { ascending: true });
+    const listado = await listarProductos({
+      busqueda: busquedaAplicada,
+      categoria: categoriaFiltro,
+    });
 
-    if (esColumnaInexistente(queryError)) {
-      const fallback = await supabase
-        .from("productos")
-        .select(COLUMNAS_PRODUCTO_SIN_TIPO_CALCULO)
-        .order("nombre", { ascending: true });
-
-      data = fallback.data;
-      queryError = fallback.error;
-    }
-
-    if (queryError) {
-      console.error("[productos] select error:", queryError);
+    if (listado.error) {
+      console.error("[productos] select error:", listado.error);
       setError(
-        `No se pudieron cargar los productos. ${formatearErrorSupabase(queryError)}`
+        `No se pudieron cargar los productos. ${formatearErrorProducto(listado.error)}`
       );
       setCargando(false);
       return;
     }
 
-    setProductos(((data ?? []) as ProductoDb[]).map(normalizarProducto));
+    setProductos(listado.productos);
     setCargando(false);
+  }, [busquedaAplicada, categoriaFiltro]);
+
+  const cargarTotales = useCallback(async () => {
+    const conteos = await contarProductos();
+
+    if (conteos.error) {
+      console.error("[productos] conteos error:", conteos.error);
+      return;
+    }
+
+    setTotales({
+      total: conteos.total,
+      activos: conteos.activos,
+      inactivos: conteos.inactivos,
+    });
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setBusquedaAplicada(busqueda);
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [busqueda]);
+
+  useEffect(() => {
+    cargarProductos();
+  }, [cargarProductos]);
+
+  useEffect(() => {
+    cargarTotales();
+  }, [cargarTotales]);
+
+  async function recargarCatalogo() {
+    await Promise.all([cargarProductos(), cargarTotales()]);
   }
 
   function abrirModalNuevo() {
     setProductoEditando(null);
     setFormulario(FORMULARIO_VACIO);
     setError(null);
+    setMensajeExito(null);
     setModalAbierto(true);
   }
 
@@ -155,6 +139,7 @@ export default function ProductosPage() {
       activo: producto.activo,
     });
     setError(null);
+    setMensajeExito(null);
     setModalAbierto(true);
   }
 
@@ -164,9 +149,7 @@ export default function ProductosPage() {
     setFormulario(FORMULARIO_VACIO);
   }
 
-  async function guardarProducto(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
+  function construirInput(): ProductoInput | null {
     const nombre = formulario.nombre.trim();
     const precio = Number(formulario.precio_kg);
     const unidad = formulario.unidad.trim();
@@ -186,51 +169,38 @@ export default function ProductosPage() {
       setError(
         "Completa nombre, categoría, subcategoría, tipo de cálculo, precio válido y unidad."
       );
-      return;
+      return null;
     }
 
-    setGuardando(true);
-    setError(null);
-
-    const payloadBase = {
+    return {
       nombre,
       precio_kg: precio,
       unidad,
       categoria,
       subcategoria,
+      tipo_calculo,
       activo: formulario.activo,
     };
+  }
 
-    console.log("[productos] save payload:", {
-      ...payloadBase,
-      tipo_calculo,
-    });
+  async function guardarProducto(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
 
-    async function guardar(payloadActual: Record<string, unknown>) {
-      return productoEditando
-        ? await supabase
-            .from("productos")
-            .update(payloadActual)
-            .eq("id", productoEditando.id)
-        : await supabase.from("productos").insert(payloadActual);
-    }
+    const input = construirInput();
+    if (!input) return;
 
-    let { error: saveError } = await guardar({
-      ...payloadBase,
-      tipo_calculo,
-    });
+    setGuardando(true);
+    setError(null);
+    setMensajeExito(null);
 
-    if (esColumnaInexistente(saveError)) {
-      ({ error: saveError } = await guardar(payloadBase));
-    }
+    const resultado = productoEditando
+      ? await actualizarProducto(productoEditando.id, input)
+      : await crearProducto(input);
 
-    if (saveError) {
-      console.error("[productos] save error.code:", saveError.code);
-      console.error("[productos] save error.message:", saveError.message);
-      console.error("[productos] save error.details:", saveError.details);
-      console.error("[productos] save error.hint:", saveError.hint);
+    if (resultado.error || !resultado.producto) {
+      console.error("[productos] save error:", resultado.error);
       setError(
-        `No se pudo guardar el producto. ${formatearErrorSupabase(saveError)}`
+        `No se pudo guardar el producto. ${formatearErrorProducto(resultado.error)}`
       );
       setGuardando(false);
       return;
@@ -238,45 +208,48 @@ export default function ProductosPage() {
 
     cerrarModal();
     setGuardando(false);
-    await cargarProductos();
+    setMensajeExito(
+      productoEditando
+        ? `Producto "${resultado.producto.nombre}" actualizado correctamente.`
+        : `Producto "${resultado.producto.nombre}" creado correctamente.`
+    );
+    await recargarCatalogo();
   }
 
   async function toggleActivo(producto: Producto) {
+    setAlternandoId(producto.id);
     setError(null);
+    setMensajeExito(null);
 
-    const { error: updateError } = await supabase
-      .from("productos")
-      .update({ activo: !producto.activo })
-      .eq("id", producto.id);
+    const resultado = await cambiarEstadoProducto(producto, !producto.activo);
 
-    if (updateError) {
-      console.error("[productos] toggle error:", updateError);
+    if (resultado.error || !resultado.producto) {
+      console.error("[productos] toggle error:", resultado.error);
       setError(
-        `No se pudo actualizar el estado del producto. ${formatearErrorSupabase(updateError)}`
+        `No se pudo actualizar el estado del producto. ${formatearErrorProducto(resultado.error)}`
       );
+      setAlternandoId(null);
       return;
     }
 
-    await cargarProductos();
+    setMensajeExito(
+      resultado.producto.activo
+        ? `"${resultado.producto.nombre}" activado correctamente.`
+        : `"${resultado.producto.nombre}" desactivado correctamente.`
+    );
+    setAlternandoId(null);
+    await recargarCatalogo();
   }
 
-  const productosFiltrados = useMemo(() => {
-    return productos
-      .filter((producto) => {
-        const coincideNombre = producto.nombre
-          .toLowerCase()
-          .includes(busqueda.toLowerCase());
-        const coincideCategoria =
-          categoriaFiltro === "Todas" ||
-          producto.categoria.toLowerCase() === categoriaFiltro.toLowerCase();
+  const sinResultados = useMemo(
+    () => !cargando && productos.length === 0,
+    [cargando, productos.length]
+  );
 
-        return coincideNombre && coincideCategoria;
-      })
-      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-  }, [productos, busqueda, categoriaFiltro]);
-
-  const totalActivos = productos.filter((producto) => producto.activo).length;
-  const totalInactivos = productos.length - totalActivos;
+  const hayFiltrosActivos = useMemo(
+    () => Boolean(busquedaAplicada.trim()) || categoriaFiltro !== "Todas",
+    [busquedaAplicada, categoriaFiltro]
+  );
 
   return (
     <main className="min-h-screen bg-zinc-100 p-8">
@@ -300,29 +273,33 @@ export default function ProductosPage() {
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-zinc-200">
           <p className="text-sm text-zinc-500">Total productos</p>
-          <p className="mt-2 text-3xl font-bold text-zinc-900">
-            {productos.length}
-          </p>
+          <p className="mt-2 text-3xl font-bold text-zinc-900">{totales.total}</p>
         </div>
         <div className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-zinc-200">
           <p className="text-sm text-zinc-500">Activos</p>
           <p className="mt-2 text-3xl font-bold text-emerald-600">
-            {totalActivos}
+            {totales.activos}
           </p>
         </div>
         <div className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-zinc-200">
           <p className="text-sm text-zinc-500">Inactivos</p>
           <p className="mt-2 text-3xl font-bold text-zinc-600">
-            {totalInactivos}
+            {totales.inactivos}
           </p>
         </div>
       </div>
 
-      {error && !modalAbierto && (
+      {mensajeExito && !modalAbierto ? (
+        <div className="mb-6 rounded-xl bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800 ring-1 ring-emerald-200">
+          {mensajeExito}
+        </div>
+      ) : null}
+
+      {error && !modalAbierto ? (
         <div className="mb-6 rounded-xl bg-red-50 px-5 py-4 text-sm font-medium text-red-700 ring-1 ring-red-200">
           {error}
         </div>
-      )}
+      ) : null}
 
       <div className="mb-6 flex flex-col gap-4 lg:flex-row">
         <input
@@ -339,7 +316,7 @@ export default function ProductosPage() {
           className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900 lg:w-56"
         >
           <option value="Todas">Todas las categorías</option>
-          {CATEGORIAS.map((categoria) => (
+          {CATEGORIAS_PRODUCTO.map((categoria) => (
             <option key={categoria} value={categoria}>
               {categoria}
             </option>
@@ -353,10 +330,12 @@ export default function ProductosPage() {
         </div>
       ) : (
         <ProductosTable
-          productos={productosFiltrados}
+          productos={productos}
           onEditar={abrirModalEditar}
           onToggleActivo={toggleActivo}
-          sinResultados={productos.length > 0 && productosFiltrados.length === 0}
+          alternandoId={alternandoId}
+          sinResultados={sinResultados}
+          hayFiltrosActivos={hayFiltrosActivos}
         />
       )}
 
@@ -367,11 +346,11 @@ export default function ProductosPage() {
               {productoEditando ? "Editar producto" : "Nuevo producto"}
             </h2>
 
-            {error && (
+            {error ? (
               <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">
                 {error}
               </div>
-            )}
+            ) : null}
 
             <form onSubmit={guardarProducto} className="mt-6 space-y-4">
               <div>
@@ -412,7 +391,7 @@ export default function ProductosPage() {
                   }
                   className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
                 >
-                  {CATEGORIAS.map((categoria) => (
+                  {CATEGORIAS_PRODUCTO.map((categoria) => (
                     <option key={categoria} value={categoria}>
                       {categoria}
                     </option>
@@ -439,7 +418,7 @@ export default function ProductosPage() {
                   }
                   className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
                 >
-                  {SUBCATEGORIAS.map((subcategoria) => (
+                  {SUBCATEGORIAS_PRODUCTO.map((subcategoria) => (
                     <option key={subcategoria} value={subcategoria}>
                       {subcategoria}
                     </option>
@@ -452,8 +431,12 @@ export default function ProductosPage() {
                   htmlFor="precio_kg"
                   className="block text-sm font-medium text-zinc-700"
                 >
-                  Precio por kilogramo
+                  Precio de referencia (por kg)
                 </label>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Referencia del catálogo. Los precios comerciales se gestionan
+                  en listas de precios.
+                </p>
                 <input
                   id="precio_kg"
                   type="number"
@@ -494,7 +477,7 @@ export default function ProductosPage() {
                   }}
                   className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
                 >
-                  {UNIDADES.map((unidad) => (
+                  {UNIDADES_PRODUCTO.map((unidad) => (
                     <option key={unidad} value={unidad}>
                       {unidad}
                     </option>
@@ -532,7 +515,7 @@ export default function ProductosPage() {
                 </p>
               </div>
 
-              {productoEditando && (
+              {productoEditando ? (
                 <label className="flex items-center gap-2 text-sm text-zinc-700">
                   <input
                     type="checkbox"
@@ -547,7 +530,7 @@ export default function ProductosPage() {
                   />
                   Producto activo
                 </label>
-              )}
+              ) : null}
 
               <div className="flex justify-end gap-3 pt-2">
                 <button

@@ -3,9 +3,11 @@ import { supabase } from "@/lib/supabase";
 import { obtenerRutaDashboardServidor } from "@/lib/navegacion-dashboard-server";
 import {
   esPedidoActivo,
+  etiquetaEstado,
   normalizarEstado,
   type EstadoCategoria,
 } from "@/lib/pedido-estados";
+import { formatMoneda } from "@/lib/pedido-calculo";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +24,9 @@ type Pedido = {
   cliente_id: string | null;
   estado: string;
   fecha: string;
+  total: number | null;
   clientes: ClienteJoin | ClienteJoin[] | null;
+  detalle_pedido: { count: number }[] | { count: number } | null;
 };
 
 function resolverCliente(
@@ -32,9 +36,6 @@ function resolverCliente(
   return Array.isArray(clientes) ? (clientes[0] ?? null) : clientes;
 }
 
-function telefonoCliente(cliente: ClienteJoin | null) {
-  return cliente?.telefono?.trim() || cliente?.whatsapp?.trim() || null;
-}
 
 type EstadoCategoriaActivo = Exclude<EstadoCategoria, "entregado">;
 
@@ -63,11 +64,20 @@ function nombreCliente(pedido: Pedido) {
   return cliente?.nombre_negocio ?? "Cliente sin asignar";
 }
 
-function formatFecha(fecha: string) {
+function contarLineas(
+  detalle: Pedido["detalle_pedido"]
+): number {
+  if (!detalle) return 0;
+  if (Array.isArray(detalle)) {
+    return detalle[0]?.count ?? 0;
+  }
+  return detalle.count ?? 0;
+}
+
+function formatFechaCorta(fecha: string) {
   return new Date(fecha).toLocaleDateString("es-MX", {
     day: "numeric",
-    month: "long",
-    year: "numeric",
+    month: "short",
   });
 }
 
@@ -149,7 +159,7 @@ export default async function PedidosPage({
   const { data: pedidos, error } = await supabase
     .from("pedidos")
     .select(
-      "id, cliente_id, estado, fecha, clientes(nombre_negocio, propietario, telefono, whatsapp, direccion)"
+      "id, cliente_id, estado, fecha, total, clientes(nombre_negocio), detalle_pedido(count)"
     )
     .order("fecha", { ascending: false });
 
@@ -264,78 +274,35 @@ export default async function PedidosPage({
 
       {listaFiltrada.length > 0 ? (
         <div className="mx-auto max-w-2xl space-y-3">
-          {listaFiltrada.map((pedido, index) => {
-            const cliente = resolverCliente(pedido.clientes);
-            const telefono = telefonoCliente(cliente);
+          {listaFiltrada.map((pedido) => {
+            const lineas = contarLineas(pedido.detalle_pedido);
 
             return (
-            <Link
-              key={pedido.id}
-              href={`/dashboard/pedidos/${pedido.id}`}
-              className="block overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-zinc-200 transition hover:bg-zinc-50 hover:shadow-md hover:ring-zinc-300"
-            >
-              <div className="border-b border-zinc-100 bg-zinc-50 px-6 py-5">
-                <h2 className="text-2xl font-bold tracking-tight text-zinc-900">
-                  Pedido {index + 1}
-                </h2>
-              </div>
-
-              <div className="px-6 py-5">
-                <p className="text-xl font-semibold text-zinc-900">
-                  {nombreCliente(pedido)}
-                </p>
-
-                {cliente ? (
-                  <dl className="mt-3 space-y-1 text-sm text-zinc-600">
-                    <div>
-                      <dt className="inline font-medium text-zinc-500">
-                        Contacto:{" "}
-                      </dt>
-                      <dd className="inline text-zinc-800">
-                        {cliente.propietario?.trim() || "—"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="inline font-medium text-zinc-500">
-                        Teléfono:{" "}
-                      </dt>
-                      <dd className="inline text-zinc-800">
-                        {telefono || "—"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="inline font-medium text-zinc-500">
-                        Dirección:{" "}
-                      </dt>
-                      <dd className="inline text-zinc-800">
-                        {cliente.direccion?.trim() || "—"}
-                      </dd>
-                    </div>
-                  </dl>
-                ) : null}
-
-                <dl className="mt-4 space-y-2 text-sm text-zinc-600">
-                  <div>
-                    <dt className="inline font-medium text-zinc-500">
-                      Estado:{" "}
-                    </dt>
-                    <dd className="inline text-zinc-800">{pedido.estado}</dd>
+              <Link
+                key={pedido.id}
+                href={`/dashboard/pedidos/${pedido.id}`}
+                className="block rounded-xl bg-white px-6 py-5 shadow-sm ring-1 ring-zinc-200 transition hover:bg-zinc-50 hover:shadow-md hover:ring-zinc-300"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xl font-bold text-zinc-900">
+                      {nombreCliente(pedido)}
+                    </p>
+                    <p className="mt-2 text-sm font-medium text-zinc-700">
+                      {etiquetaEstado(pedido.estado)}
+                    </p>
                   </div>
-                  <div>
-                    <dt className="inline font-medium text-zinc-500">
-                      Fecha:{" "}
-                    </dt>
-                    <dd className="inline text-zinc-800">
-                      {formatFecha(pedido.fecha)}
-                    </dd>
+                  <div className="shrink-0 text-right">
+                    <p className="text-xl font-bold text-zinc-900">
+                      {formatMoneda(pedido.total ?? 0)}
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {lineas} producto{lineas === 1 ? "" : "s"} ·{" "}
+                      {formatFechaCorta(pedido.fecha)}
+                    </p>
                   </div>
-                </dl>
-
-                <p className="mt-4 text-sm font-medium text-zinc-500">
-                  0 productos
-                </p>
-              </div>
-            </Link>
+                </div>
+              </Link>
             );
           })}
         </div>

@@ -5,6 +5,8 @@ import {
   verificarTokenSesion,
   type SesionUsuario,
 } from "@/lib/auth";
+import { rutaDashboardPorRol } from "@/lib/navegacion-dashboard";
+import { puedeAccederModulo, type Modulo } from "@/lib/roles";
 
 export async function obtenerSesion(): Promise<SesionUsuario | null> {
   const cookieStore = await cookies();
@@ -25,4 +27,14 @@ export async function requerirSesion(): Promise<SesionUsuario> {
 export async function obtenerNombreSesion(): Promise<string | null> {
   const sesion = await obtenerSesion();
   return sesion?.nombre ?? sesion?.usuario ?? null;
+}
+
+export async function requerirModulo(modulo: Modulo): Promise<SesionUsuario> {
+  const sesion = await requerirSesion();
+
+  if (!puedeAccederModulo(sesion.rol, modulo)) {
+    redirect(rutaDashboardPorRol(sesion.rol));
+  }
+
+  return sesion;
 }

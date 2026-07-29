@@ -42,7 +42,6 @@ type Cliente = {
   direccion: string | null;
   tipo_cliente_id: string;
   lista_precio_id: string | null;
-  dias_visita: string[];
   activo: boolean;
   tipos_cliente: TipoCliente | TipoCliente[] | null;
 };
@@ -55,19 +54,8 @@ type FormularioCliente = {
   direccion: string;
   tipo_cliente_id: string;
   lista_precio_id: string;
-  dias_visita: string[];
   activo: boolean;
 };
-
-const DIAS_SEMANA = [
-  { codigo: "lunes", etiqueta: "Lunes" },
-  { codigo: "martes", etiqueta: "Martes" },
-  { codigo: "miercoles", etiqueta: "Miércoles" },
-  { codigo: "jueves", etiqueta: "Jueves" },
-  { codigo: "viernes", etiqueta: "Viernes" },
-  { codigo: "sabado", etiqueta: "Sábado" },
-  { codigo: "domingo", etiqueta: "Domingo" },
-] as const;
 
 const FORMULARIO_VACIO: FormularioCliente = {
   nombre_negocio: "",
@@ -77,12 +65,11 @@ const FORMULARIO_VACIO: FormularioCliente = {
   direccion: "",
   tipo_cliente_id: "",
   lista_precio_id: "",
-  dias_visita: [],
   activo: true,
 };
 
 const COLUMNAS_CLIENTE =
-  "id, nombre_negocio, propietario, telefono, whatsapp, direccion, tipo_cliente_id, lista_precio_id, dias_visita, activo, tipos_cliente(nombre)";
+  "id, nombre_negocio, propietario, telefono, whatsapp, direccion, tipo_cliente_id, lista_precio_id, activo, tipos_cliente(nombre)";
 
 function resolverTipoCliente(
   tipos: TipoCliente | TipoCliente[] | null | undefined
@@ -129,23 +116,34 @@ export default function ClientesPage() {
         .order("nombre"),
     ]);
 
-    if (clientesRes.error || tiposRes.error || listasRes.error) {
-      const queryError =
-        clientesRes.error ?? tiposRes.error ?? listasRes.error ?? null;
-      console.error("[clientes] load error:", queryError);
+    if (clientesRes.error) {
+      console.error("[clientes] consulta clientes:", clientesRes.error);
       setError(
-        `No se pudieron cargar los clientes. ${formatearErrorSupabase(queryError)}`
+        `Falló la consulta de clientes. ${formatearErrorSupabase(clientesRes.error)}`
       );
       setCargando(false);
       return;
     }
 
-    setClientes(
-      ((clientesRes.data ?? []) as Cliente[]).map((cliente) => ({
-        ...cliente,
-        dias_visita: cliente.dias_visita ?? [],
-      }))
-    );
+    if (tiposRes.error) {
+      console.error("[clientes] consulta tipos de cliente:", tiposRes.error);
+      setError(
+        `Falló la consulta de tipos de cliente. ${formatearErrorSupabase(tiposRes.error)}`
+      );
+      setCargando(false);
+      return;
+    }
+
+    if (listasRes.error) {
+      console.error("[clientes] consulta listas de precios:", listasRes.error);
+      setError(
+        `Falló la consulta de listas de precios. ${formatearErrorSupabase(listasRes.error)}`
+      );
+      setCargando(false);
+      return;
+    }
+
+    setClientes((clientesRes.data ?? []) as Cliente[]);
     setTiposCliente((tiposRes.data ?? []) as TipoCliente[]);
     setListasPrecio((listasRes.data ?? []) as ListaPrecio[]);
     setCargando(false);
@@ -172,18 +170,6 @@ export default function ClientesPage() {
     setModalAbierto(false);
     setListaPersonalizada(false);
     setFormulario(FORMULARIO_VACIO);
-  }
-
-  function alternarDiaVisita(codigo: string) {
-    setFormulario((prev) => {
-      const seleccionado = prev.dias_visita.includes(codigo);
-      return {
-        ...prev,
-        dias_visita: seleccionado
-          ? prev.dias_visita.filter((dia) => dia !== codigo)
-          : [...prev.dias_visita, codigo],
-      };
-    });
   }
 
   async function guardarCliente(event: React.FormEvent<HTMLFormElement>) {
@@ -217,7 +203,6 @@ export default function ClientesPage() {
         listaPersonalizada && formulario.lista_precio_id.trim()
           ? formulario.lista_precio_id.trim()
           : null,
-      dias_visita: formulario.dias_visita,
       activo: formulario.activo,
     };
 
@@ -533,28 +518,6 @@ export default function ClientesPage() {
                       </button>
                     </div>
                   )}
-                </div>
-
-                <div>
-                  <p className="block text-sm font-medium text-zinc-700">
-                    Días de visita
-                  </p>
-                  <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    {DIAS_SEMANA.map((dia) => (
-                      <label
-                        key={dia.codigo}
-                        className="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-700"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={formulario.dias_visita.includes(dia.codigo)}
-                          onChange={() => alternarDiaVisita(dia.codigo)}
-                          className="rounded border-zinc-300"
-                        />
-                        {dia.etiqueta}
-                      </label>
-                    ))}
-                  </div>
                 </div>
 
                 <label className="flex items-center gap-2 text-sm text-zinc-700">

@@ -11,10 +11,24 @@ export type Modulo =
 export type PermisoPedido =
   | "ver_lista"
   | "ver_detalle"
+  | "crear"
+  | "agregar_productos"
   | "consultar_cliente"
   | "abrir_maps"
   | "imprimir_nota"
   | "cambiar_estado";
+
+export type PermisoOperacion =
+  | "crear_pedidos"
+  | "agregar_productos_pedido"
+  | "preparar_pedidos"
+  | "buscar_clientes"
+  | "crear_clientes"
+  | "editar_clientes"
+  | "crear_productos"
+  | "editar_productos"
+  | "activar_productos"
+  | "modificar_listas_precio";
 
 export type Usuario = {
   id: string;
@@ -36,13 +50,15 @@ export const MODULOS_POR_ROL: Record<RolUsuario, Modulo[]> = {
     "usuarios",
     "balance",
   ],
-  colaborador: ["pedidos"],
+  colaborador: ["clientes", "productos", "pedidos"],
 };
 
 export const PERMISOS_PEDIDOS_POR_ROL: Record<RolUsuario, PermisoPedido[]> = {
   administrador: [
     "ver_lista",
     "ver_detalle",
+    "crear",
+    "agregar_productos",
     "consultar_cliente",
     "abrir_maps",
     "imprimir_nota",
@@ -51,10 +67,41 @@ export const PERMISOS_PEDIDOS_POR_ROL: Record<RolUsuario, PermisoPedido[]> = {
   colaborador: [
     "ver_lista",
     "ver_detalle",
+    "crear",
+    "agregar_productos",
     "consultar_cliente",
     "abrir_maps",
     "imprimir_nota",
     "cambiar_estado",
+  ],
+};
+
+export const PERMISOS_OPERACION_POR_ROL: Record<
+  RolUsuario,
+  PermisoOperacion[]
+> = {
+  administrador: [
+    "crear_pedidos",
+    "agregar_productos_pedido",
+    "preparar_pedidos",
+    "buscar_clientes",
+    "crear_clientes",
+    "editar_clientes",
+    "crear_productos",
+    "editar_productos",
+    "activar_productos",
+    "modificar_listas_precio",
+  ],
+  colaborador: [
+    "crear_pedidos",
+    "agregar_productos_pedido",
+    "preparar_pedidos",
+    "buscar_clientes",
+    "crear_clientes",
+    "editar_clientes",
+    "crear_productos",
+    "editar_productos",
+    "activar_productos",
   ],
 };
 
@@ -96,6 +143,13 @@ export function puedeUsarPermisoPedido(
   permiso: PermisoPedido
 ): boolean {
   return PERMISOS_PEDIDOS_POR_ROL[rol].includes(permiso);
+}
+
+export function puedeRealizarOperacion(
+  rol: RolUsuario,
+  operacion: PermisoOperacion
+): boolean {
+  return PERMISOS_OPERACION_POR_ROL[rol].includes(operacion);
 }
 
 export function esAdministrador(rol: RolUsuario): boolean {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { obtenerSesion } from "@/lib/auth-server";
 import { rutaDashboardPorRol } from "@/lib/navegacion-dashboard";
+import { usuarioPublico } from "@/lib/sesion-publica";
 
 export async function GET() {
   const sesion = await obtenerSesion();
@@ -11,7 +12,7 @@ export async function GET() {
 
   return NextResponse.json({
     authenticated: true,
-    usuario: sesion,
+    usuario: usuarioPublico(sesion),
     dashboardPath: rutaDashboardPorRol(sesion.rol),
   });
 }
