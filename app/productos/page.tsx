@@ -8,6 +8,7 @@ import {
   DESCRIPCION_TIPO_CALCULO,
   ETIQUETAS_TIPO_CALCULO,
   TIPOS_CALCULO,
+  esTipoCalculoProducto,
   tipoCalculoPorDefecto,
   type TipoCalculoProducto,
 } from "@/lib/tipo-calculo-producto";
@@ -28,6 +29,27 @@ const UNIDADES = ["kg", "pieza", "paquete", "caja"] as const;
 
 const COLUMNAS_PRODUCTO =
   "id, nombre, precio_kg, unidad, categoria, subcategoria, tipo_calculo, activo";
+
+const COLUMNAS_PRODUCTO_SIN_TIPO_CALCULO =
+  "id, nombre, precio_kg, unidad, categoria, subcategoria, activo";
+
+type ProductoDb = Omit<Producto, "tipo_calculo"> & {
+  tipo_calculo?: TipoCalculoProducto | null;
+};
+
+function esColumnaInexistente(error: PostgrestError | null): boolean {
+  return error?.code === "42703";
+}
+
+function normalizarProducto(producto: ProductoDb): Producto {
+  return {
+    ...producto,
+    tipo_calculo:
+      producto.tipo_calculo && esTipoCalculoProducto(producto.tipo_calculo)
+        ? producto.tipo_calculo
+        : tipoCalculoPorDefecto(producto.unidad),
+  };
+}
 
 type FormularioProducto = {
   nombre: string;
@@ -86,10 +108,20 @@ export default function ProductosPage() {
     setCargando(true);
     setError(null);
 
-    const { data, error: queryError } = await supabase
+    let { data, error: queryError } = await supabase
       .from("productos")
       .select(COLUMNAS_PRODUCTO)
       .order("nombre", { ascending: true });
+
+    if (esColumnaInexistente(queryError)) {
+      const fallback = await supabase
+        .from("productos")
+        .select(COLUMNAS_PRODUCTO_SIN_TIPO_CALCULO)
+        .order("nombre", { ascending: true });
+
+      data = fallback.data;
+      queryError = fallback.error;
+    }
 
     if (queryError) {
       console.error("[productos] select error:", queryError);
@@ -100,7 +132,7 @@ export default function ProductosPage() {
       return;
     }
 
-    setProductos((data ?? []) as Producto[]);
+    setProductos(((data ?? []) as ProductoDb[]).map(normalizarProducto));
     setCargando(false);
   }
 
@@ -160,24 +192,37 @@ export default function ProductosPage() {
     setGuardando(true);
     setError(null);
 
-    const payload = {
+    const payloadBase = {
       nombre,
       precio_kg: precio,
       unidad,
       categoria,
       subcategoria,
-      tipo_calculo,
       activo: formulario.activo,
     };
 
-    console.log("[productos] save payload:", payload);
+    console.log("[productos] save payload:", {
+      ...payloadBase,
+      tipo_calculo,
+    });
 
-    const { error: saveError } = productoEditando
-      ? await supabase
-          .from("productos")
-          .update(payload)
-          .eq("id", productoEditando.id)
-      : await supabase.from("productos").insert(payload);
+    async function guardar(payloadActual: Record<string, unknown>) {
+      return productoEditando
+        ? await supabase
+            .from("productos")
+            .update(payloadActual)
+            .eq("id", productoEditando.id)
+        : await supabase.from("productos").insert(payloadActual);
+    }
+
+    let { error: saveError } = await guardar({
+      ...payloadBase,
+      tipo_calculo,
+    });
+
+    if (esColumnaInexistente(saveError)) {
+      ({ error: saveError } = await guardar(payloadBase));
+    }
 
     if (saveError) {
       console.error("[productos] save error.code:", saveError.code);
