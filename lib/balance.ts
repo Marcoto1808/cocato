@@ -50,6 +50,13 @@ export const PRODUCTOS_CAPOTE_IDS = [
   "espinazo",
 ] as const satisfies readonly ProductoBalanceId[];
 
+export const PRODUCTOS_SUBPRODUCTO_IDS = [
+  "cabeza",
+  "manitas",
+  "maletas",
+  "retazo",
+] as const satisfies readonly ProductoBalanceId[];
+
 export type CompraDiaState = {
   fecha: string;
   numeroPuercos: string;
@@ -98,7 +105,7 @@ export const PASOS_BALANCE = [
     id: "precios",
     titulo: "Precios",
     descripcion:
-      "Revisa el precio anterior, el sugerido y define el precio nuevo de venta.",
+      "Simula precios de venta hasta encontrar el equilibrio entre el valor del capote y la utilidad por puerco.",
   },
   {
     id: "resultados",
@@ -188,48 +195,6 @@ export function formatearPesosEnterosInput(valor: number | null): string {
   return String(redondearPesos(valor));
 }
 
-/** Nuevo precio de canal simulado a partir del costo y el capote real (mock UI). */
-export function calcularPrecioCanalNuevoEjemplo(
-  costoTotal: string,
-  capoteReal: string
-): number | null {
-  const costo = parsearNumero(costoTotal);
-  const capote = parsearNumero(capoteReal);
-
-  if (costo === null || capote === null || capote <= 0) return null;
-
-  return Math.round((costo / capote) * 1.35);
-}
-
-/** Precios sugeridos proporcionales al cambio del precio de canal. */
-export function calcularPreciosSugeridosDesdeCanal(
-  precioCanalNuevo: number | null,
-  precioCanalAnterior: number | null,
-  preciosAnteriores: Record<ProductoBalanceId, number | null>
-): Record<ProductoBalanceId, number | null> {
-  const factor =
-    precioCanalNuevo !== null &&
-    precioCanalAnterior !== null &&
-    precioCanalAnterior > 0
-      ? precioCanalNuevo / precioCanalAnterior
-      : null;
-
-  return PRODUCTOS_BALANCE.reduce(
-    (acc, producto) => {
-      const anterior = preciosAnteriores[producto.id];
-
-      if (anterior === null || factor === null) {
-        acc[producto.id] = null;
-        return acc;
-      }
-
-      acc[producto.id] = Math.round(anterior * factor);
-      return acc;
-    },
-    {} as Record<ProductoBalanceId, number | null>
-  );
-}
-
 export function calcularPrecioCanal(
   preciosPorProducto: Record<ProductoBalanceId, number>,
   rendimiento: RendimientoState
@@ -248,6 +213,48 @@ export function calcularPrecioCanal(
   }
 
   return totalKilos > 0 ? Math.round(sumaPonderada / totalKilos) : null;
+}
+
+/** Valor total ($) al vender los cortes del capote con los precios simulados. */
+export function calcularValorCapoteTotal(
+  preciosPorProducto: Partial<Record<ProductoBalanceId, number>>,
+  rendimiento: RendimientoState
+): number | null {
+  let total = 0;
+  let tieneValor = false;
+
+  for (const id of PRODUCTOS_CAPOTE_IDS) {
+    const kilos = parsearNumero(rendimiento[id]);
+    const precio = preciosPorProducto[id];
+
+    if (kilos !== null && kilos > 0 && precio !== undefined) {
+      total += precio * kilos;
+      tieneValor = true;
+    }
+  }
+
+  return tieneValor ? Math.round(total) : null;
+}
+
+/** Valor total ($) al vender los subproductos con los precios simulados. */
+export function calcularValorSubproductosTotal(
+  preciosPorProducto: Partial<Record<ProductoBalanceId, number>>,
+  rendimiento: RendimientoState
+): number | null {
+  let total = 0;
+  let tieneValor = false;
+
+  for (const id of PRODUCTOS_SUBPRODUCTO_IDS) {
+    const kilos = parsearNumero(rendimiento[id]);
+    const precio = preciosPorProducto[id];
+
+    if (kilos !== null && kilos > 0 && precio !== undefined) {
+      total += precio * kilos;
+      tieneValor = true;
+    }
+  }
+
+  return tieneValor ? Math.round(total) : null;
 }
 
 export function sumarKilosRendimiento(

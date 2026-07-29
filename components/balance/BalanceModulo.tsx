@@ -16,12 +16,14 @@ import {
   ETIQUETAS_INDICADOR,
   PASOS_BALANCE,
   PRODUCTOS_BALANCE,
+  PRODUCTOS_CAPOTE_IDS,
+  PRODUCTOS_SUBPRODUCTO_IDS,
   calcularCapoteTotal,
   calcularCostoTotalCompra,
   calcularPrecioCanal,
-  calcularPrecioCanalNuevoEjemplo,
-  calcularPreciosSugeridosDesdeCanal,
   calcularResultadosBalance,
+  calcularValorCapoteTotal,
+  calcularValorSubproductosTotal,
   clonarPrecios,
   clonarPreciosAnteriores,
   crearPreciosAnterioresInicial,
@@ -135,6 +137,48 @@ function TarjetaResumenCanal({
   );
 }
 
+function TarjetaIndicadorComposicion({
+  titulo,
+  valor,
+  expandido,
+  onToggle,
+  productos,
+}: {
+  titulo: string;
+  valor: string;
+  expandido: boolean;
+  onToggle: () => void;
+  productos: string[];
+}) {
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full text-left"
+        aria-expanded={expandido}
+      >
+        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          {titulo}
+        </p>
+        <p className="mt-2 text-2xl font-bold tabular-nums text-zinc-900">
+          {valor}
+        </p>
+        <span className="mt-2 inline-block text-xs text-zinc-500">
+          {expandido ? "Ocultar composición" : "Ver composición"}
+        </span>
+      </button>
+      {expandido ? (
+        <ul className="mt-3 list-disc space-y-1 border-t border-zinc-200 pt-3 pl-5 text-sm text-zinc-600">
+          {productos.map((nombre) => (
+            <li key={nombre}>{nombre}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 function TarjetaResultado({
   titulo,
   valor,
@@ -152,13 +196,6 @@ function TarjetaResultado({
       </p>
     </div>
   );
-}
-
-function claseDiferencia(diferencia: number | null): string {
-  if (diferencia === null) return "text-zinc-400";
-  if (diferencia > 0) return "font-medium text-emerald-700";
-  if (diferencia < 0) return "font-medium text-red-600";
-  return "text-zinc-600";
 }
 
 export default function BalanceModulo() {
@@ -201,10 +238,12 @@ export default function BalanceModulo() {
   const [mensajePublicacion, setMensajePublicacion] = useState<string | null>(
     null
   );
+  const [composicionExpandida, setComposicionExpandida] = useState<
+    "capote" | "subproductos" | null
+  >(null);
 
   const costoTotalManual = useRef(false);
   const capoteRealManual = useRef(false);
-  const preciosManual = useRef<Partial<Record<ProductoBalanceId, boolean>>>({});
   const historialInicializado = useRef(false);
 
   const paso = PASOS_BALANCE[pasoActual];
@@ -227,48 +266,9 @@ export default function BalanceModulo() {
     [rendimiento]
   );
 
-  const capoteParaPrecios = capoteRealParaPrecios || capoteReal;
-
-  const precioCanalNuevo = useMemo(
-    () => calcularPrecioCanalNuevoEjemplo(costoTotal, capoteParaPrecios),
-    [costoTotal, capoteParaPrecios]
-  );
-
   const preciosAnterioresNumeros = useMemo(
     () => preciosAnterioresComoNumeros(preciosAnteriores),
     [preciosAnteriores]
-  );
-
-  const precioCanalAnterior = useMemo(() => {
-    if (tieneHistorialPublicado && precioCanalAnteriorPublicado !== null) {
-      return precioCanalAnteriorPublicado;
-    }
-
-    const mapaPrecios = PRODUCTOS_BALANCE.reduce(
-      (acc, producto) => {
-        const valor = preciosAnterioresNumeros[producto.id];
-        if (valor !== null) acc[producto.id] = valor;
-        return acc;
-      },
-      {} as Record<ProductoBalanceId, number>
-    );
-
-    return calcularPrecioCanal(mapaPrecios, rendimientoParaPrecios);
-  }, [
-    tieneHistorialPublicado,
-    precioCanalAnteriorPublicado,
-    preciosAnterioresNumeros,
-    rendimientoParaPrecios,
-  ]);
-
-  const preciosSugeridos = useMemo(
-    () =>
-      calcularPreciosSugeridosDesdeCanal(
-        precioCanalNuevo,
-        precioCanalAnterior,
-        preciosAnterioresNumeros
-      ),
-    [precioCanalNuevo, precioCanalAnterior, preciosAnterioresNumeros]
   );
 
   const calculados = useMemo(
@@ -281,6 +281,68 @@ export default function BalanceModulo() {
       ),
     [compra.numeroPuercos, rendimientoParaPrecios, preciosGuardados, costoTotal]
   );
+
+  const calculadosSimulacion = useMemo(
+    () =>
+      calcularResultadosBalance(
+        compra,
+        rendimientoParaPrecios,
+        precios,
+        costoTotal
+      ),
+    [compra.numeroPuercos, rendimientoParaPrecios, precios, costoTotal]
+  );
+
+  const preciosSimulacionNumeros = useMemo(
+    () =>
+      PRODUCTOS_BALANCE.reduce(
+        (acc, producto) => {
+          const valor = parsearNumero(precios[producto.id].precioNuevo);
+          if (valor !== null) acc[producto.id] = valor;
+          return acc;
+        },
+        {} as Record<ProductoBalanceId, number>
+      ),
+    [precios]
+  );
+
+  const valorCapote = useMemo(
+    () =>
+      calcularValorCapoteTotal(
+        preciosSimulacionNumeros,
+        rendimientoParaPrecios
+      ),
+    [preciosSimulacionNumeros, rendimientoParaPrecios]
+  );
+
+  const valorSubproductos = useMemo(
+    () =>
+      calcularValorSubproductosTotal(
+        preciosSimulacionNumeros,
+        rendimientoParaPrecios
+      ),
+    [preciosSimulacionNumeros, rendimientoParaPrecios]
+  );
+
+  const nombresCapote = useMemo(
+    () =>
+      PRODUCTOS_CAPOTE_IDS.map(
+        (id) => PRODUCTOS_BALANCE.find((item) => item.id === id)!.nombreRendimiento
+      ),
+    []
+  );
+
+  const nombresSubproductos = useMemo(
+    () =>
+      PRODUCTOS_SUBPRODUCTO_IDS.map(
+        (id) => PRODUCTOS_BALANCE.find((item) => item.id === id)!.nombreRendimiento
+      ),
+    []
+  );
+
+  function alternarComposicion(tipo: "capote" | "subproductos") {
+    setComposicionExpandida((actual) => (actual === tipo ? null : tipo));
+  }
 
   const hayCambiosSinGuardar = useMemo(() => {
     const borrador = normalizarPreciosEnteros(precios);
@@ -295,9 +357,7 @@ export default function BalanceModulo() {
   const precioCanalActual = useMemo(() => {
     const preciosNuevos = PRODUCTOS_BALANCE.reduce(
       (acc, producto) => {
-        const valor =
-          parsearNumero(precios[producto.id].precioNuevo) ??
-          preciosSugeridos[producto.id];
+        const valor = parsearNumero(precios[producto.id].precioNuevo);
         if (valor !== null) acc[producto.id] = valor;
         return acc;
       },
@@ -305,14 +365,7 @@ export default function BalanceModulo() {
     );
 
     return calcularPrecioCanal(preciosNuevos, rendimientoParaPrecios);
-  }, [precios, preciosSugeridos, rendimientoParaPrecios]);
-
-  const diferenciaCanal = useMemo(() => {
-    if (precioCanalActual === null || precioCanalAnterior === null) {
-      return null;
-    }
-    return precioCanalActual - precioCanalAnterior;
-  }, [precioCanalActual, precioCanalAnterior]);
+  }, [precios, rendimientoParaPrecios]);
 
   const indicador = useMemo(
     () => indicadorDesdeMargen(calculados.margen),
@@ -320,16 +373,21 @@ export default function BalanceModulo() {
   );
 
   const listaPrecios = useMemo(() => {
+    const fuente = paso.id === "precios" ? precios : preciosGuardados;
+
     return PRODUCTOS_BALANCE.map((producto) => {
-      const precioNuevo = parsearNumero(
-        preciosGuardados[producto.id].precioNuevo
-      );
+      const precioNuevo = parsearNumero(fuente[producto.id].precioNuevo);
       return {
         ...producto,
         precioMostrar: precioNuevo,
       };
     });
-  }, [preciosGuardados]);
+  }, [paso.id, precios, preciosGuardados]);
+
+  const metricasPrecios = useMemo(() => {
+    if (paso.id === "precios") return calculadosSimulacion;
+    return calculados;
+  }, [paso.id, calculadosSimulacion, calculados]);
 
   const tienePreciosGuardados = useMemo(
     () =>
@@ -389,27 +447,6 @@ export default function BalanceModulo() {
 
   useEffect(() => {
     if (!enPreciosOPosterior) return;
-
-    setPrecios((prev) => {
-      const next = { ...prev };
-
-      for (const producto of PRODUCTOS_BALANCE) {
-        if (!preciosManual.current[producto.id]) {
-          const sugerido = preciosSugeridos[producto.id];
-          if (sugerido !== null) {
-            next[producto.id] = {
-              precioNuevo: formatearPesosEnterosInput(sugerido),
-            };
-          }
-        }
-      }
-
-      return next;
-    });
-  }, [preciosSugeridos, enPreciosOPosterior]);
-
-  useEffect(() => {
-    if (!enPreciosOPosterior) return;
     setResultados(resultadosCalculadosAString(calculados));
   }, [calculados, enPreciosOPosterior]);
 
@@ -429,11 +466,6 @@ export default function BalanceModulo() {
     rendimiento.espaldilla,
     rendimiento.espinazo,
   ]);
-
-  useEffect(() => {
-    if (!enPreciosOPosterior) return;
-    preciosManual.current = {};
-  }, [precioCanalNuevo, enPreciosOPosterior]);
 
   function actualizarSnapshotPrecios() {
     setRendimientoParaPrecios({ ...rendimiento });
@@ -589,7 +621,6 @@ export default function BalanceModulo() {
     productoId: ProductoBalanceId,
     valor: string
   ) {
-    preciosManual.current[productoId] = true;
     setMensajePreciosGuardados(null);
     setPrecios((prev) => ({
       ...prev,
@@ -647,8 +678,16 @@ export default function BalanceModulo() {
       return (
         <SeccionBalance
           id="lista-precios-dia"
-          titulo="Lista de precios del día"
-          descripcion="Vista previa con los precios nuevos definidos."
+          titulo={
+            paso.id === "precios"
+              ? "Simulación en tiempo real"
+              : "Lista de precios del día"
+          }
+          descripcion={
+            paso.id === "precios"
+              ? "Los indicadores se actualizan al modificar el precio nuevo."
+              : "Vista previa con los precios guardados."
+          }
         >
           <ul className="divide-y divide-zinc-100 rounded-xl ring-1 ring-zinc-200">
             {listaPrecios.map((item) => (
@@ -672,24 +711,32 @@ export default function BalanceModulo() {
           </div>
 
           <div className="mt-4 space-y-2 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+            {paso.id === "precios" ? (
+              <div className="flex justify-between gap-4">
+                <span className="text-zinc-500">Valor del capote</span>
+                <span className="font-medium tabular-nums text-zinc-900">
+                  {formatearPesosEnteros(valorCapote)}
+                </span>
+              </div>
+            ) : null}
             <div className="flex justify-between gap-4">
               <span className="text-zinc-500">Utilidad por puerco</span>
               <span className="font-medium tabular-nums text-zinc-900">
-                {formatearPesosEnteros(
-                  parsearNumero(resultados.utilidadPorPuerco)
-                )}
+                {formatearPesosEnteros(metricasPrecios.utilidadPorPuerco)}
               </span>
             </div>
             <div className="flex justify-between gap-4">
               <span className="text-zinc-500">Utilidad total</span>
               <span className="font-medium tabular-nums text-emerald-700">
-                {formatearPesosEnteros(parsearNumero(resultados.utilidadTotal))}
+                {formatearPesosEnteros(metricasPrecios.utilidadTotal)}
               </span>
             </div>
             <div className="flex justify-between gap-4">
               <span className="text-zinc-500">Margen</span>
               <span className="font-medium tabular-nums text-zinc-900">
-                {resultados.margen ? `${resultados.margen}%` : "—"}
+                {metricasPrecios.margen !== null
+                  ? `${formatearNumeroBalance(metricasPrecios.margen, 1)}%`
+                  : "—"}
               </span>
             </div>
           </div>
@@ -913,27 +960,48 @@ export default function BalanceModulo() {
               </p>
             ) : null}
 
-            <div className="grid gap-4 sm:grid-cols-3">
-              <TarjetaResumenCanal
-                titulo="Precio canal anterior"
-                valor={formatearPesosEnteros(precioCanalAnterior)}
+            <p className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+              Ajusta el <strong>Precio nuevo</strong> de cada producto para
+              probar distintos escenarios. Los indicadores se recalculan al
+              instante. Cuando encuentres el balance deseado, guarda y publica la
+              lista.
+            </p>
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+              <TarjetaIndicadorComposicion
+                titulo="Valor del capote"
+                valor={formatearPesosEnteros(valorCapote)}
+                expandido={composicionExpandida === "capote"}
+                onToggle={() => alternarComposicion("capote")}
+                productos={nombresCapote}
+              />
+              <TarjetaIndicadorComposicion
+                titulo="Valor de los Subproductos"
+                valor={formatearPesosEnteros(valorSubproductos)}
+                expandido={composicionExpandida === "subproductos"}
+                onToggle={() => alternarComposicion("subproductos")}
+                productos={nombresSubproductos}
               />
               <TarjetaResumenCanal
-                titulo="Precio canal actual"
-                valor={formatearPesosEnteros(precioCanalActual)}
+                titulo="Utilidad por puerco"
+                valor={formatearPesosEnteros(
+                  calculadosSimulacion.utilidadPorPuerco
+                )}
               />
-              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                  Diferencia
-                </p>
-                <p
-                  className={`mt-2 text-2xl font-bold tabular-nums ${claseDiferencia(diferenciaCanal)}`}
-                >
-                  {diferenciaCanal === null
-                    ? "—"
-                    : `${diferenciaCanal > 0 ? "+" : ""}${formatearPesosEnteros(diferenciaCanal)}`}
-                </p>
-              </div>
+              <TarjetaResumenCanal
+                titulo="Utilidad total"
+                valor={formatearPesosEnteros(
+                  calculadosSimulacion.utilidadTotal
+                )}
+              />
+              <TarjetaResumenCanal
+                titulo="Margen"
+                valor={
+                  calculadosSimulacion.margen !== null
+                    ? `${formatearNumeroBalance(calculadosSimulacion.margen, 1)}%`
+                    : "—"
+                }
+              />
             </div>
 
             <div className="overflow-x-auto rounded-xl ring-1 ring-zinc-200">
@@ -956,12 +1024,6 @@ export default function BalanceModulo() {
                       scope="col"
                       className="px-4 py-3 text-right font-semibold text-zinc-700"
                     >
-                      Precio sugerido
-                    </th>
-                    <th
-                      scope="col"
-                      className="px-4 py-3 text-right font-semibold text-zinc-700"
-                    >
                       Precio nuevo
                     </th>
                   </tr>
@@ -969,7 +1031,6 @@ export default function BalanceModulo() {
                 <tbody className="divide-y divide-zinc-100 bg-white">
                   {PRODUCTOS_BALANCE.map((producto) => {
                     const anterior = preciosAnterioresNumeros[producto.id];
-                    const sugerido = preciosSugeridos[producto.id];
 
                     return (
                       <tr key={producto.id} className="hover:bg-zinc-50/80">
@@ -999,9 +1060,6 @@ export default function BalanceModulo() {
                             />
                           )}
                         </td>
-                        <td className="px-4 py-3 text-right tabular-nums font-medium text-blue-700">
-                          {formatearPesosEnteros(sugerido)}
-                        </td>
                         <td className="px-4 py-3 text-right">
                           <input
                             type="number"
@@ -1015,7 +1073,7 @@ export default function BalanceModulo() {
                                 event.target.value
                               )
                             }
-                            className={`${inputTablaClass} text-right`}
+                            className={`${inputTablaClass} text-right font-medium`}
                             aria-label={`Precio nuevo de ${producto.nombreRendimiento}`}
                           />
                         </td>
@@ -1035,6 +1093,15 @@ export default function BalanceModulo() {
               >
                 {guardandoPrecios ? "Guardando..." : "Guardar precios"}
               </button>
+              {hayCambiosSinGuardar ? (
+                <span className="text-sm text-amber-700">
+                  Hay cambios sin guardar en la simulación.
+                </span>
+              ) : tienePreciosGuardados ? (
+                <span className="text-sm text-emerald-700">
+                  Precios guardados listos para publicar.
+                </span>
+              ) : null}
             </div>
 
             {mensajePreciosGuardados ? (
@@ -1049,26 +1116,6 @@ export default function BalanceModulo() {
                 {mensajePreciosGuardados}
               </p>
             ) : null}
-
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <span className="text-sm font-medium text-zinc-700">
-                  Utilidad total
-                </span>
-                <span className="text-lg font-bold tabular-nums text-emerald-800">
-                  {formatearPesosEnteros(
-                    tienePreciosGuardados ? calculados.utilidadTotal : null
-                  )}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-zinc-500">
-                {!tienePreciosGuardados
-                  ? "Presiona Guardar precios para confirmar y recalcular."
-                  : hayCambiosSinGuardar
-                    ? "Hay cambios sin guardar. Presiona Guardar precios para actualizar la utilidad."
-                    : "Calculada con los precios guardados."}
-              </p>
-            </div>
           </div>
         );
 
