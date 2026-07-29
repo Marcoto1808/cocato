@@ -19,6 +19,7 @@ function esRutaPublica(pathname: string) {
 function moduloDesdeRuta(pathname: string): Modulo | null {
   if (pathname.startsWith("/dashboard/admin")) return "dashboard";
   if (pathname.startsWith("/clientes")) return "clientes";
+  if (pathname.startsWith("/cobranza")) return "cobranza";
   if (pathname.startsWith("/productos")) return "productos";
   if (pathname.startsWith("/usuarios")) return "usuarios";
   if (pathname.startsWith("/balance")) return "balance";

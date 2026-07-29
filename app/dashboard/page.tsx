@@ -24,6 +24,12 @@ const TARJETAS_MODULO: Partial<
     titulo: "Clientes",
     descripcion: "Administrar clientes",
   },
+  cobranza: {
+    href: "/cobranza",
+    icono: "💳",
+    titulo: "Cobranza",
+    descripcion: "Cartera y pagos pendientes",
+  },
   productos: {
     href: "/productos",
     icono: "🥩",
@@ -102,14 +108,14 @@ export default async function Dashboard() {
                   {esPedidos ? (
                     pedidosActivos > 0 ? (
                       <div className="flex items-center gap-2">
-                        <span className="text-2xl leading-none">🔴</span>
+                        <span className="text-2xl leading-none">🔔</span>
                         <span className="text-5xl font-bold leading-none text-red-600">
                           {pedidosActivos}
                         </span>
                       </div>
                     ) : (
                       <span className="max-w-[9rem] text-right text-sm font-semibold leading-snug text-emerald-600">
-                        🟢 Sin pedidos pendientes
+                        ✅ Sin pedidos pendientes
                       </span>
                     )
                   ) : null}

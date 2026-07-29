@@ -512,6 +512,12 @@ export default async function AdminDashboardPage() {
               descripcion="Precios de venta diarios"
             />
             <AccesoRapido
+              href="/cobranza"
+              titulo="Cobranza"
+              icono="💳"
+              descripcion="Cartera y pagos pendientes"
+            />
+            <AccesoRapido
               href="/usuarios"
               titulo="Usuarios"
               icono="👤"

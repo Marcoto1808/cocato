@@ -3,6 +3,7 @@ export type RolUsuario = "administrador" | "colaborador";
 export type Modulo =
   | "dashboard"
   | "clientes"
+  | "cobranza"
   | "productos"
   | "pedidos"
   | "usuarios"
@@ -45,12 +46,13 @@ export const MODULOS_POR_ROL: Record<RolUsuario, Modulo[]> = {
   administrador: [
     "dashboard",
     "clientes",
+    "cobranza",
     "productos",
     "pedidos",
     "usuarios",
     "balance",
   ],
-  colaborador: ["clientes", "productos", "pedidos"],
+  colaborador: ["clientes", "cobranza", "productos", "pedidos"],
 };
 
 export const PERMISOS_PEDIDOS_POR_ROL: Record<RolUsuario, PermisoPedido[]> = {
@@ -108,6 +110,7 @@ export const PERMISOS_OPERACION_POR_ROL: Record<
 export const ETIQUETAS_MODULO: Record<Modulo, string> = {
   dashboard: "Dashboard",
   clientes: "Clientes",
+  cobranza: "Cobranza",
   productos: "Productos",
   pedidos: "Pedidos",
   usuarios: "Usuarios",

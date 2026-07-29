@@ -46,6 +46,10 @@ import {
 } from "@/lib/pedido-cantidad";
 import CantidadConUnidad from "@/components/pedidos/CantidadConUnidad";
 import SelectorModoCaptura from "@/components/pedidos/SelectorModoCaptura";
+import {
+  evaluarCreditoCliente,
+  MENSAJE_CREDITO_EXCEDIDO,
+} from "@/lib/cliente-credito";
 
 type TipoClienteJoin = {
   id: string;
@@ -58,6 +62,7 @@ type ClienteOption = {
   propietario: string | null;
   tipo_cliente_id: string;
   lista_precio_id: string | null;
+  limite_credito: number;
   tipos_cliente: TipoClienteJoin | TipoClienteJoin[] | null;
   listas_precio: { id: string; nombre: string } | { id: string; nombre: string }[] | null;
 };
@@ -209,6 +214,10 @@ export default function NuevoPedidoForm() {
 
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [advertenciaCredito, setAdvertenciaCredito] = useState<string | null>(
+    null
+  );
+  const [validandoCredito, setValidandoCredito] = useState(false);
 
   const cargarCatalogo = useCallback(async () => {
     setCargandoCatalogo(true);
@@ -218,7 +227,7 @@ export default function NuevoPedidoForm() {
       supabase
         .from("clientes")
         .select(
-          "id, nombre_negocio, propietario, tipo_cliente_id, lista_precio_id, tipos_cliente(id, nombre), listas_precio(id, nombre)"
+          "id, nombre_negocio, propietario, tipo_cliente_id, lista_precio_id, limite_credito, tipos_cliente(id, nombre), listas_precio(id, nombre)"
         )
         .eq("activo", true)
         .order("nombre_negocio"),
@@ -252,6 +261,44 @@ export default function NuevoPedidoForm() {
   useEffect(() => {
     cargarCatalogo();
   }, [cargarCatalogo]);
+
+  useEffect(() => {
+    if (!clienteSeleccionado) {
+      setAdvertenciaCredito(null);
+      return;
+    }
+
+    let cancelado = false;
+
+    void (async () => {
+      setValidandoCredito(true);
+
+      try {
+        const evaluacion = await evaluarCreditoCliente(
+          clienteSeleccionado.id,
+          Number(clienteSeleccionado.limite_credito ?? 0)
+        );
+
+        if (!cancelado) {
+          setAdvertenciaCredito(
+            evaluacion.permitido ? null : MENSAJE_CREDITO_EXCEDIDO
+          );
+        }
+      } catch {
+        if (!cancelado) {
+          setAdvertenciaCredito(null);
+        }
+      } finally {
+        if (!cancelado) {
+          setValidandoCredito(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [clienteSeleccionado]);
 
   const clientesFiltrados = useMemo(() => {
     const termino = busquedaCliente.trim().toLowerCase();
@@ -493,6 +540,21 @@ export default function NuevoPedidoForm() {
       return;
     }
 
+    try {
+      const evaluacion = await evaluarCreditoCliente(
+        clienteSeleccionado.id,
+        Number(clienteSeleccionado.limite_credito ?? 0)
+      );
+
+      if (!evaluacion.permitido) {
+        setError(evaluacion.mensaje ?? MENSAJE_CREDITO_EXCEDIDO);
+        return;
+      }
+    } catch {
+      setError("No se pudo validar el crédito del cliente. Intenta de nuevo.");
+      return;
+    }
+
     setGuardando(true);
     setError(null);
 
@@ -665,6 +727,18 @@ export default function NuevoPedidoForm() {
                 </dd>
               </div>
             </dl>
+
+            {validandoCredito ? (
+              <p className="mt-4 text-sm text-zinc-500">
+                Validando crédito del cliente...
+              </p>
+            ) : null}
+
+            {advertenciaCredito ? (
+              <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">
+                {advertenciaCredito}
+              </div>
+            ) : null}
           </div>
         )}
       </section>
@@ -979,7 +1053,9 @@ export default function NuevoPedidoForm() {
             guardando ||
             !clienteSeleccionado ||
             lineas.length === 0 ||
-            cargandoLista
+            cargandoLista ||
+            validandoCredito ||
+            Boolean(advertenciaCredito)
           }
           className="rounded-lg bg-white px-6 py-3 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
         >

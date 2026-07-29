@@ -276,6 +276,7 @@ CREATE TABLE public.clientes (
   tipo_cliente_id UUID NOT NULL REFERENCES public.tipos_cliente (id) ON DELETE RESTRICT,
   lista_precio_id UUID REFERENCES public.listas_precio (id) ON DELETE SET NULL,
   dias_visita TEXT[] NOT NULL DEFAULT '{}',
+  limite_credito NUMERIC(12, 2) NOT NULL DEFAULT 10000,
   activo BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -302,6 +303,8 @@ CREATE TABLE public.pedidos (
   mensaje_original TEXT NOT NULL,
   observaciones TEXT,
   total NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  estado_pago TEXT,
+  pagado_en TIMESTAMPTZ,
   capturado_por UUID REFERENCES public.usuarios (id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),

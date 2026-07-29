@@ -5,6 +5,7 @@ import type { PostgrestError } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import ClientesTable from "@/components/clientes/ClientesTable";
 import VolverAlDashboardLink from "@/components/navegacion/VolverAlDashboardLink";
+import { limiteCreditoDefault } from "@/lib/cliente-credito";
 
 function formatearErrorSupabase(error: PostgrestError | null): string {
   if (!error) {
@@ -24,6 +25,7 @@ function formatearErrorSupabase(error: PostgrestError | null): string {
 type TipoCliente = {
   id: string;
   nombre: string;
+  codigo: string;
 };
 
 type ListaPrecio = {
@@ -107,7 +109,7 @@ export default function ClientesPage() {
         .order("nombre_negocio"),
       supabase
         .from("tipos_cliente")
-        .select("id, nombre")
+        .select("id, nombre, codigo")
         .eq("activo", true)
         .order("orden"),
       supabase
@@ -192,6 +194,10 @@ export default function ClientesPage() {
     setError(null);
     setMensajeExito(null);
 
+    const tipoSeleccionado = tiposCliente.find(
+      (tipo) => tipo.id === tipo_cliente_id
+    );
+
     const payload = {
       nombre_negocio,
       propietario: formulario.propietario.trim() || null,
@@ -203,6 +209,7 @@ export default function ClientesPage() {
         listaPersonalizada && formulario.lista_precio_id.trim()
           ? formulario.lista_precio_id.trim()
           : null,
+      limite_credito: limiteCreditoDefault(tipoSeleccionado?.codigo),
       activo: formulario.activo,
     };
 

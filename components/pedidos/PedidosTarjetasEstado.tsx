@@ -49,7 +49,7 @@ function EntregarPedidoButton({ pedidoId }: { pedidoId: string }) {
 
     const { error } = await supabase
       .from("pedidos")
-      .update({ estado: "Entregado" })
+      .update({ estado: "Entregado", estado_pago: "pendiente" })
       .eq("id", pedidoId);
 
     setCargando(false);
