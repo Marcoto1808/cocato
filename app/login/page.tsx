@@ -49,7 +49,7 @@ export default function Login() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-100 px-4">
       <div className="w-full max-w-md rounded-xl bg-white p-8 shadow-lg ring-1 ring-zinc-200">
-        <h1 className="text-center text-3xl font-bold text-zinc-900">COCATO</h1>
+        <h1 className="text-center text-3xl font-bold text-zinc-900">DICATO</h1>
         <p className="mt-2 text-center text-zinc-500">
           Sistema Integral de Distribución de Carne
         </p>

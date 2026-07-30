@@ -13,7 +13,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "COCATO",
+  title: {
+    default: "DICATO",
+    template: "%s | DICATO",
+  },
   description: "Sistema Integral de Distribución de Carne.",
 };
 

@@ -2,7 +2,7 @@ import BalanceModulo from "@/components/balance/BalanceModulo";
 import { requerirModulo } from "@/lib/auth-server";
 
 export const metadata = {
-  title: "Balance | COCATO",
+  title: "Balance",
   description: "Cálculo de precios de venta diarios",
 };
 

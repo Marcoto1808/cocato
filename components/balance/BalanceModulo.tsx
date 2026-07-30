@@ -8,11 +8,15 @@ import {
   cargarPreciosAnterioresGuardadosLocal,
   guardarBorradorBalance,
   guardarPreciosBalance,
+  persistirListaPublicadaLocal,
   preciosAnterioresDesdePreciosGuardados,
   publicarBalance,
   type BalanceBorradorLocal,
 } from "@/lib/balance-guardado";
-import { PublicacionBalanceError } from "@/lib/balance-publicacion";
+import {
+  PublicacionBalanceError,
+  cargarUltimoBalancePublicado,
+} from "@/lib/balance-publicacion";
 import {
   ETIQUETAS_INDICADOR,
   PASOS_BALANCE,
@@ -41,6 +45,9 @@ import {
   normalizarPreciosEnteros,
   parsearNumero,
   preciosAnterioresComoNumeros,
+  preciosStateDesdeAnteriores,
+  preciosStateDesdeCodigosPublicados,
+  preciosTienenValores,
   resultadosCalculadosAString,
   sumarKilosRendimiento,
   type CompraDiaState,
@@ -417,50 +424,96 @@ export default function BalanceModulo() {
     if (historialInicializado.current) return;
     historialInicializado.current = true;
 
-    const listaPublicada = cargarListaPreciosPublicadaLocal();
-    const borrador = cargarBorradorBalanceLocal();
-
-    if (borrador) {
-      setCompra(borrador.compra);
-      setCostoTotal(borrador.costoTotal);
-      setRendimiento(borrador.rendimiento);
-      setCapoteReal(borrador.capoteReal);
-      setRendimientoParaPrecios(borrador.rendimientoParaPrecios);
-      setCapoteRealParaPrecios(borrador.capoteRealParaPrecios);
-    }
-
-    if (listaPublicada) {
-      const preciosBase = clonarPrecios(listaPublicada.precios);
+    function aplicarPreciosPublicados(
+      preciosBase: PreciosState,
+      precioCanal: number | null,
+      publicadoEn: string
+    ) {
       setPreciosAnteriores(
         preciosAnterioresDesdePreciosGuardados(preciosBase)
       );
       setPrecios(preciosBase);
       setPreciosGuardados(preciosBase);
-      setPrecioCanalAnteriorPublicado(listaPublicada.precioCanal);
-      setUltimaActualizacion(listaPublicada.publicadoEn);
+      setPrecioCanalAnteriorPublicado(precioCanal);
+      setUltimaActualizacion(publicadoEn);
       setTieneHistorialPublicado(true);
-    } else if (borrador) {
-      const preciosBase = clonarPrecios(borrador.preciosGuardados);
-      setPreciosAnteriores(
-        clonarPreciosAnteriores(
-          borrador.preciosAnteriores ?? crearPreciosAnterioresInicial()
-        )
-      );
-      setPrecios(preciosBase);
-      setPreciosGuardados(preciosBase);
-      if (borrador.actualizadoEn) {
-        setUltimaActualizacion(borrador.actualizadoEn);
+    }
+
+    async function inicializarHistorial() {
+      const listaPublicada = cargarListaPreciosPublicadaLocal();
+      const borrador = cargarBorradorBalanceLocal();
+
+      if (borrador) {
+        setCompra(borrador.compra);
+        setCostoTotal(borrador.costoTotal);
+        setRendimiento(borrador.rendimiento);
+        setCapoteReal(borrador.capoteReal);
+        setRendimientoParaPrecios(borrador.rendimientoParaPrecios);
+        setCapoteRealParaPrecios(borrador.capoteRealParaPrecios);
       }
-      if (borrador.preciosAnteriores) {
-        setTieneHistorialPublicado(true);
+
+      if (listaPublicada) {
+        aplicarPreciosPublicados(
+          clonarPrecios(listaPublicada.precios),
+          listaPublicada.precioCanal,
+          listaPublicada.publicadoEn
+        );
+        return;
       }
-    } else {
+
+      const ultimoPublicado = await cargarUltimoBalancePublicado();
+      if (
+        ultimoPublicado &&
+        Object.keys(ultimoPublicado.preciosPorCodigo).length > 0
+      ) {
+        const preciosBase = clonarPrecios(
+          preciosStateDesdeCodigosPublicados(ultimoPublicado.preciosPorCodigo)
+        );
+        aplicarPreciosPublicados(
+          preciosBase,
+          ultimoPublicado.precioCanal,
+          ultimoPublicado.publicadoEn
+        );
+        persistirListaPublicadaLocal({
+          precios: preciosBase,
+          precioCanal: ultimoPublicado.precioCanal,
+          publicadoEn: ultimoPublicado.publicadoEn,
+        });
+        return;
+      }
+
+      if (borrador && preciosTienenValores(borrador.preciosGuardados)) {
+        const preciosBase = clonarPrecios(borrador.preciosGuardados);
+        setPreciosAnteriores(
+          clonarPreciosAnteriores(
+            borrador.preciosAnteriores ?? crearPreciosAnterioresInicial()
+          )
+        );
+        setPrecios(preciosBase);
+        setPreciosGuardados(preciosBase);
+        if (borrador.actualizadoEn) {
+          setUltimaActualizacion(borrador.actualizadoEn);
+        }
+        if (borrador.preciosAnteriores) {
+          setTieneHistorialPublicado(true);
+        }
+        return;
+      }
+
       const anterioresGuardados = cargarPreciosAnterioresGuardadosLocal();
       if (anterioresGuardados) {
-        setPreciosAnteriores(clonarPreciosAnteriores(anterioresGuardados));
+        const anteriores = clonarPreciosAnteriores(anterioresGuardados);
+        const preciosBase = clonarPrecios(
+          preciosStateDesdeAnteriores(anteriores)
+        );
+        setPreciosAnteriores(anteriores);
+        setPrecios(preciosBase);
+        setPreciosGuardados(preciosBase);
         setTieneHistorialPublicado(true);
       }
     }
+
+    void inicializarHistorial();
   }, []);
 
   useEffect(() => {
@@ -1220,7 +1273,7 @@ export default function BalanceModulo() {
 
         <header className="mb-8">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
-            COCATO
+            DICATO
           </p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight text-zinc-900">
             Balance del día

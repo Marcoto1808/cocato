@@ -70,6 +70,10 @@ function guardarListaPublicadaLocal(lista: ListaPreciosPublicadaLocal) {
   escribirJson(CLAVE_LISTA_PUBLICADA, lista);
 }
 
+export function persistirListaPublicadaLocal(lista: ListaPreciosPublicadaLocal) {
+  guardarListaPublicadaLocal(lista);
+}
+
 export function preciosAnterioresDesdePreciosGuardados(
   precios: PreciosState
 ): PreciosAnterioresState {

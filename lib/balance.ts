@@ -152,6 +152,44 @@ export function crearPreciosAnterioresInicial(): PreciosAnterioresState {
   );
 }
 
+export function preciosStateDesdeCodigosPublicados(
+  preciosPorCodigo: Partial<Record<ProductoBalanceId, number>>
+): PreciosState {
+  return PRODUCTOS_BALANCE.reduce(
+    (acc, producto) => {
+      const valor = preciosPorCodigo[producto.id];
+      acc[producto.id] = {
+        precioNuevo:
+          valor !== undefined && Number.isFinite(valor)
+            ? formatearPesosEnterosInput(valor)
+            : "",
+      };
+      return acc;
+    },
+    {} as PreciosState
+  );
+}
+
+export function preciosStateDesdeAnteriores(
+  anteriores: PreciosAnterioresState
+): PreciosState {
+  return PRODUCTOS_BALANCE.reduce(
+    (acc, producto) => {
+      acc[producto.id] = {
+        precioNuevo: anteriores[producto.id]?.precio ?? "",
+      };
+      return acc;
+    },
+    {} as PreciosState
+  );
+}
+
+export function preciosTienenValores(precios: PreciosState): boolean {
+  return PRODUCTOS_BALANCE.some(
+    (producto) => parsearNumero(precios[producto.id]?.precioNuevo ?? "") !== null
+  );
+}
+
 export function crearResultadosInicial(): ResultadosState {
   return {
     utilidadTotal: "",

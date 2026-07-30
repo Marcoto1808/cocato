@@ -33,7 +33,7 @@ export function generarSaludo(
   const nombreSaludo = nombreParaSaludo(nombre, usuario);
 
   if (!nombreSaludo) {
-    return "Bienvenido a COCATO";
+    return "Bienvenido a DICATO";
   }
 
   const hora = new Date().getHours();

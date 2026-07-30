@@ -38,7 +38,7 @@ export default function AdminBarraSuperior({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
-            COCATO
+            DICATO
           </p>
           <h1 className="mt-2 text-2xl font-bold tracking-tight text-zinc-900 md:text-3xl">
             {saludo}
