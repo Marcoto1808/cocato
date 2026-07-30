@@ -50,6 +50,12 @@ import {
   evaluarCreditoCliente,
   MENSAJE_CREDITO_EXCEDIDO,
 } from "@/lib/cliente-credito";
+import {
+  ETIQUETA_CLIENTE_TEMPORAL,
+  NOMBRE_CLIENTE_SISTEMA,
+} from "@/lib/pedido-rapido";
+
+type ModoInicioPedido = "seleccion" | "registrado" | "rapido";
 
 type TipoClienteJoin = {
   id: string;
@@ -219,34 +225,52 @@ export default function NuevoPedidoForm() {
   );
   const [validandoCredito, setValidandoCredito] = useState(false);
 
+  const [modoInicio, setModoInicio] = useState<ModoInicioPedido>("seleccion");
+  const [pedidoRapidoActivo, setPedidoRapidoActivo] = useState(false);
+  const [clienteSistema, setClienteSistema] = useState<ClienteOption | null>(
+    null
+  );
+  const [nombreRapido, setNombreRapido] = useState("");
+
   const cargarCatalogo = useCallback(async () => {
     setCargandoCatalogo(true);
     setError(null);
 
-    const [clientesRes, productosRes] = await Promise.all([
+    const [clientesRes, productosRes, sistemaRes] = await Promise.all([
       supabase
         .from("clientes")
         .select(
           "id, nombre_negocio, propietario, tipo_cliente_id, lista_precio_id, limite_credito, tipos_cliente(id, nombre), listas_precio(id, nombre)"
         )
         .eq("activo", true)
+        .neq("nombre_negocio", NOMBRE_CLIENTE_SISTEMA)
         .order("nombre_negocio"),
       supabase
         .from("productos")
         .select("id, nombre, unidad, precio_kg, tipo_calculo, categoria")
         .eq("activo", true)
         .order("nombre"),
+      supabase
+        .from("clientes")
+        .select(
+          "id, nombre_negocio, propietario, tipo_cliente_id, lista_precio_id, limite_credito, tipos_cliente(id, nombre), listas_precio(id, nombre)"
+        )
+        .eq("nombre_negocio", NOMBRE_CLIENTE_SISTEMA)
+        .maybeSingle(),
     ]);
 
-    if (clientesRes.error || productosRes.error) {
+    if (clientesRes.error || productosRes.error || sistemaRes.error) {
       setError(
-        formatearError(clientesRes.error ?? productosRes.error ?? null)
+        formatearError(
+          clientesRes.error ?? productosRes.error ?? sistemaRes.error ?? null
+        )
       );
       setCargandoCatalogo(false);
       return;
     }
 
     setClientes((clientesRes.data ?? []) as ClienteOption[]);
+    setClienteSistema((sistemaRes.data as ClienteOption | null) ?? null);
     setProductos(
       ((productosRes.data ?? []) as ProductoOption[]).map((producto) => ({
         ...producto,
@@ -263,7 +287,7 @@ export default function NuevoPedidoForm() {
   }, [cargarCatalogo]);
 
   useEffect(() => {
-    if (!clienteSeleccionado) {
+    if (!clienteSeleccionado || pedidoRapidoActivo) {
       setAdvertenciaCredito(null);
       return;
     }
@@ -298,7 +322,7 @@ export default function NuevoPedidoForm() {
     return () => {
       cancelado = true;
     };
-  }, [clienteSeleccionado]);
+  }, [clienteSeleccionado, pedidoRapidoActivo]);
 
   const clientesFiltrados = useMemo(() => {
     const termino = busquedaCliente.trim().toLowerCase();
@@ -316,6 +340,25 @@ export default function NuevoPedidoForm() {
       );
     });
   }, [clientes, busquedaCliente]);
+
+  const sugerenciasRapido = useMemo(() => {
+    const termino = nombreRapido.trim().toLowerCase();
+    if (termino.length < 2) return [];
+
+    return clientes
+      .filter((cliente) => {
+        const campos = [cliente.nombre_negocio, cliente.propietario];
+        return campos.some((campo) =>
+          campo?.toLowerCase().includes(termino)
+        );
+      })
+      .slice(0, 5);
+  }, [clientes, nombreRapido]);
+
+  const clienteListo = Boolean(clienteSeleccionado);
+  const nombreClienteMostrar = pedidoRapidoActivo
+    ? nombreRapido.trim()
+    : (clienteSeleccionado?.nombre_negocio ?? "");
 
   const productosDeCategoria = useMemo(
     () =>
@@ -365,12 +408,7 @@ export default function NuevoPedidoForm() {
     window.requestAnimationFrame(() => productoInputRef.current?.focus());
   }
 
-  async function seleccionarCliente(cliente: ClienteOption) {
-    setClienteSeleccionado(cliente);
-    setBusquedaCliente(cliente.nombre_negocio);
-    setLineas([]);
-    reiniciarCapturaProducto(true);
-    setError(null);
+  async function cargarListaPreciosCliente(cliente: ClienteOption) {
     setCargandoLista(true);
 
     const { lista, error: listaError } = await resolverListaPrecioCliente(
@@ -401,9 +439,52 @@ export default function NuevoPedidoForm() {
     setCargandoLista(false);
   }
 
+  async function seleccionarCliente(cliente: ClienteOption) {
+    setPedidoRapidoActivo(false);
+    setModoInicio("registrado");
+    setClienteSeleccionado(cliente);
+    setBusquedaCliente(cliente.nombre_negocio);
+    setLineas([]);
+    reiniciarCapturaProducto(true);
+    setError(null);
+    await cargarListaPreciosCliente(cliente);
+  }
+
+  async function continuarPedidoRapido() {
+    const nombre = nombreRapido.trim();
+    if (!nombre) {
+      setError("Escribe el nombre del cliente o negocio.");
+      return;
+    }
+
+    if (!clienteSistema) {
+      setError(
+        "Pedido rápido no está configurado. Ejecuta sql/add_pedido_rapido.sql en Supabase."
+      );
+      return;
+    }
+
+    setError(null);
+    setPedidoRapidoActivo(true);
+    setClienteSeleccionado(clienteSistema);
+    setLineas([]);
+    reiniciarCapturaProducto(true);
+    await cargarListaPreciosCliente(clienteSistema);
+  }
+
+  function elegirClienteDesdeSugerencia(cliente: ClienteOption) {
+    setNombreRapido("");
+    void seleccionarCliente(cliente);
+  }
+
   function limpiarCliente() {
+    const eraRapido = pedidoRapidoActivo;
+
     setClienteSeleccionado(null);
+    setPedidoRapidoActivo(false);
+    setModoInicio(eraRapido ? "seleccion" : "registrado");
     setBusquedaCliente("");
+    setNombreRapido("");
     setListaResuelta(null);
     setPreciosLista(new Map());
     setLineas([]);
@@ -527,6 +608,11 @@ export default function NuevoPedidoForm() {
       return;
     }
 
+    if (pedidoRapidoActivo && !nombreRapido.trim()) {
+      setError("Escribe el nombre del cliente o negocio.");
+      return;
+    }
+
     if (lineas.length === 0) {
       setError("Agrega al menos un producto al pedido.");
       return;
@@ -540,19 +626,21 @@ export default function NuevoPedidoForm() {
       return;
     }
 
-    try {
-      const evaluacion = await evaluarCreditoCliente(
-        clienteSeleccionado.id,
-        Number(clienteSeleccionado.limite_credito ?? 0)
-      );
+    if (!pedidoRapidoActivo) {
+      try {
+        const evaluacion = await evaluarCreditoCliente(
+          clienteSeleccionado.id,
+          Number(clienteSeleccionado.limite_credito ?? 0)
+        );
 
-      if (!evaluacion.permitido) {
-        setError(evaluacion.mensaje ?? MENSAJE_CREDITO_EXCEDIDO);
+        if (!evaluacion.permitido) {
+          setError(evaluacion.mensaje ?? MENSAJE_CREDITO_EXCEDIDO);
+          return;
+        }
+      } catch {
+        setError("No se pudo validar el crédito del cliente. Intenta de nuevo.");
         return;
       }
-    } catch {
-      setError("No se pudo validar el crédito del cliente. Intenta de nuevo.");
-      return;
     }
 
     setGuardando(true);
@@ -565,6 +653,8 @@ export default function NuevoPedidoForm() {
       )
       .join(", ");
 
+    const observacionesFinales = observaciones.trim() || null;
+
     const { data: pedido, error: pedidoError } = await supabase
       .from("pedidos")
       .insert({
@@ -573,8 +663,14 @@ export default function NuevoPedidoForm() {
         lista_precio_id: listaResuelta?.id ?? null,
         estado: "Pendiente",
         fecha: new Date().toISOString(),
-        mensaje_original: `Pedido manual — ${resumenProductos}`,
-        observaciones: observaciones.trim() || null,
+        mensaje_original: pedidoRapidoActivo
+          ? `Pedido rápido — ${nombreRapido.trim()} — ${resumenProductos}`
+          : `Pedido manual — ${resumenProductos}`,
+        observaciones: observacionesFinales,
+        cliente_nombre_temporal: pedidoRapidoActivo
+          ? nombreRapido.trim()
+          : null,
+        cliente_telefono_temporal: null,
         total,
       })
       .select("id")
@@ -627,24 +723,145 @@ export default function NuevoPedidoForm() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-8 pb-32">
       {error ? (
-        <div className="rounded-xl bg-red-50 px-5 py-4 text-sm text-red-700 ring-1 ring-red-200">
+        <div className="rounded-2xl bg-red-50 px-5 py-4 text-base text-red-700 ring-1 ring-red-200">
           {error}
         </div>
       ) : null}
 
-      <section className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
-        <h2 className="text-lg font-semibold text-zinc-900">Cliente</h2>
+      <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-zinc-200 sm:p-7">
+        <h2 className="text-xl font-bold text-zinc-900 sm:text-2xl">Cliente</h2>
 
-        {!clienteSeleccionado ? (
-          <div className="mt-4 space-y-3">
+        {modoInicio === "seleccion" && !clienteListo ? (
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setModoInicio("registrado")}
+              className="min-h-[5.5rem] rounded-2xl border-2 border-zinc-200 bg-gradient-to-br from-white to-zinc-50 p-5 text-left transition hover:border-zinc-300 hover:shadow-md active:scale-[0.99]"
+            >
+              <span className="text-3xl" aria-hidden>
+                🟢
+              </span>
+              <p className="mt-3 text-xl font-bold text-zinc-900">
+                Cliente registrado
+              </p>
+              <p className="mt-1 text-base text-zinc-500">
+                Buscar en el catálogo de clientes
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setModoInicio("rapido")}
+              className="min-h-[5.5rem] rounded-2xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-white p-5 text-left transition hover:border-amber-300 hover:shadow-md active:scale-[0.99]"
+            >
+              <span className="text-3xl" aria-hidden>
+                ⚡
+              </span>
+              <p className="mt-3 text-xl font-bold text-zinc-900">
+                Pedido rápido
+              </p>
+              <p className="mt-1 text-base text-zinc-500">
+                Solo nombre, sin registrar cliente
+              </p>
+            </button>
+          </div>
+        ) : null}
+
+        {modoInicio === "rapido" && !clienteListo ? (
+          <div className="mt-5 space-y-4">
+            <button
+              type="button"
+              onClick={() => setModoInicio("seleccion")}
+              className="text-base font-medium text-zinc-500 hover:text-zinc-900"
+            >
+              ← Elegir otro modo
+            </button>
+
+            <div>
+              <label
+                htmlFor="nombre-rapido"
+                className="mb-3 block text-base font-semibold text-zinc-700"
+              >
+                Nombre del cliente o negocio
+                <span className="ml-1 font-normal text-red-600">*</span>
+              </label>
+              <input
+                id="nombre-rapido"
+                type="text"
+                value={nombreRapido}
+                onChange={(event) => setNombreRapido(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && nombreRapido.trim()) {
+                    event.preventDefault();
+                    void continuarPedidoRapido();
+                  }
+                }}
+                placeholder="Ej. Carnicería Lety, Fonda Lupita..."
+                className="w-full rounded-xl border border-zinc-300 px-4 py-3.5 text-base text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900 sm:py-4 sm:text-lg"
+                autoFocus
+              />
+            </div>
+
+            {sugerenciasRapido.length > 0 ? (
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">
+                  ¿Quisiste decir...?
+                </p>
+                <ul className="mt-3 space-y-2">
+                  {sugerenciasRapido.map((cliente) => {
+                    const tipo = resolverJoin(cliente.tipos_cliente);
+                    return (
+                      <li key={cliente.id}>
+                        <button
+                          type="button"
+                          onClick={() => elegirClienteDesdeSugerencia(cliente)}
+                          className="flex w-full items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 text-left ring-1 ring-blue-100 transition hover:bg-blue-50"
+                        >
+                          <span className="text-base font-semibold text-zinc-900">
+                            {cliente.nombre_negocio}
+                          </span>
+                          {tipo ? (
+                            <span className="text-sm text-zinc-500">
+                              {tipo.nombre}
+                            </span>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={continuarPedidoRapido}
+              disabled={!nombreRapido.trim()}
+              className="min-h-[3.5rem] w-full rounded-xl bg-green-600 px-6 py-4 text-lg font-bold uppercase tracking-wide text-white shadow-lg transition hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Continuar
+            </button>
+          </div>
+        ) : null}
+
+        {modoInicio === "registrado" && !clienteListo ? (
+          <div className="mt-5 space-y-4">
+            <button
+              type="button"
+              onClick={() => setModoInicio("seleccion")}
+              className="text-base font-medium text-zinc-500 hover:text-zinc-900"
+            >
+              ← Elegir otro modo
+            </button>
+
             <input
               type="text"
               value={busquedaCliente}
               onChange={(event) => setBusquedaCliente(event.target.value)}
               placeholder="Buscar por negocio, dueño o tipo..."
-              className="w-full rounded-lg border border-zinc-300 px-4 py-3 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+              className="w-full rounded-xl border border-zinc-300 px-4 py-3.5 text-base text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900 sm:py-4 sm:text-lg"
               autoFocus
             />
 
@@ -656,7 +873,7 @@ export default function NuevoPedidoForm() {
                 const cliente = clientes.find((item) => item.id === id);
                 if (cliente) seleccionarCliente(cliente);
               }}
-              className="w-full rounded-lg border border-zinc-300 px-4 py-3 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+              className="w-full rounded-xl border border-zinc-300 px-4 py-3.5 text-base text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900 sm:py-4 sm:text-lg"
             >
               <option value="">
                 {clientesFiltrados.length === 0
@@ -678,20 +895,27 @@ export default function NuevoPedidoForm() {
             </select>
 
             {busquedaCliente.trim() && clientesFiltrados.length === 0 ? (
-              <p className="text-sm text-zinc-500">
+              <p className="text-base text-zinc-500">
                 No se encontraron clientes activos con ese criterio.
               </p>
             ) : null}
           </div>
-        ) : (
-          <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-lg font-semibold text-zinc-900">
-                  {clienteSeleccionado.nombre_negocio}
+        ) : null}
+
+        {clienteListo ? (
+          <div className="mt-5 rounded-2xl border-2 border-zinc-200 bg-gradient-to-br from-zinc-50 to-white p-5 sm:p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0 flex-1">
+                {pedidoRapidoActivo ? (
+                  <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-800">
+                    {ETIQUETA_CLIENTE_TEMPORAL}
+                  </span>
+                ) : null}
+                <p className="text-2xl font-bold leading-tight text-zinc-900 sm:text-3xl">
+                  {nombreClienteMostrar}
                 </p>
-                {clienteSeleccionado.propietario?.trim() ? (
-                  <p className="text-sm text-zinc-600">
+                {!pedidoRapidoActivo && clienteSeleccionado?.propietario?.trim() ? (
+                  <p className="mt-1 text-base text-zinc-600 sm:text-lg">
                     {clienteSeleccionado.propietario.trim()}
                   </p>
                 ) : null}
@@ -699,26 +923,26 @@ export default function NuevoPedidoForm() {
               <button
                 type="button"
                 onClick={limpiarCliente}
-                className="shrink-0 text-sm font-medium text-zinc-600 hover:text-zinc-900"
+                className="shrink-0 rounded-xl border-2 border-zinc-300 bg-white px-5 py-2.5 text-base font-semibold text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50"
               >
                 Cambiar
               </button>
             </div>
 
-            <dl className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div>
-                <dt className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            <dl className="mt-5 grid gap-4 sm:grid-cols-2">
+              <div className="rounded-xl bg-white px-4 py-3 ring-1 ring-zinc-200">
+                <dt className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   Tipo de cliente
                 </dt>
-                <dd className="mt-1 text-sm font-medium text-zinc-900">
+                <dd className="mt-1.5 text-lg font-bold text-zinc-900">
                   {tipoClienteNombre}
                 </dd>
               </div>
-              <div>
-                <dt className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              <div className="rounded-xl bg-white px-4 py-3 ring-1 ring-zinc-200">
+                <dt className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   Lista de precios
                 </dt>
-                <dd className="mt-1 text-sm font-medium text-zinc-900">
+                <dd className="mt-1.5 text-lg font-bold text-zinc-900">
                   {cargandoLista
                     ? "Cargando..."
                     : listaResuelta
@@ -728,37 +952,37 @@ export default function NuevoPedidoForm() {
               </div>
             </dl>
 
-            {validandoCredito ? (
-              <p className="mt-4 text-sm text-zinc-500">
+            {!pedidoRapidoActivo && validandoCredito ? (
+              <p className="mt-4 text-base text-zinc-500">
                 Validando crédito del cliente...
               </p>
             ) : null}
 
-            {advertenciaCredito ? (
-              <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">
+            {!pedidoRapidoActivo && advertenciaCredito ? (
+              <div className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-base text-red-700 ring-1 ring-red-200">
                 {advertenciaCredito}
               </div>
             ) : null}
           </div>
-        )}
+        ) : null}
       </section>
 
       <section
-        className={`rounded-xl bg-white p-6 shadow-sm ring-1 ring-zinc-200 ${!clienteSeleccionado ? "opacity-50" : ""}`}
+        className={`rounded-2xl bg-white p-5 shadow-sm ring-1 ring-zinc-200 sm:p-7 ${!clienteListo ? "opacity-50" : ""}`}
       >
-        <h2 className="text-lg font-semibold text-zinc-900">Productos</h2>
+        <h2 className="text-xl font-bold text-zinc-900 sm:text-2xl">Productos</h2>
 
-        <div className="mt-4 space-y-4">
+        <div className="mt-5 space-y-6">
           <div>
-            <p className="mb-2 text-sm font-medium text-zinc-700">Categoría</p>
-            <div className="flex gap-2">
+            <p className="mb-3 text-base font-semibold text-zinc-700">Categoría</p>
+            <div className="flex flex-wrap gap-3">
               {CATEGORIAS_PRODUCTO.map((categoria) => (
                 <button
                   key={categoria}
                   type="button"
                   onClick={() => cambiarCategoria(categoria)}
                   disabled={!clienteSeleccionado || cargandoLista}
-                  className={`rounded-lg px-5 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                  className={`min-h-[3.25rem] rounded-xl px-6 py-3.5 text-base font-bold transition disabled:cursor-not-allowed disabled:opacity-40 sm:px-8 sm:text-lg ${
                     categoriaCaptura === categoria
                       ? categoria === "Cerdo"
                         ? "bg-pink-600 text-white"
@@ -775,7 +999,7 @@ export default function NuevoPedidoForm() {
           <div>
             <label
               htmlFor="producto-combobox"
-              className="mb-2 block text-sm font-medium text-zinc-700"
+              className="mb-3 block text-base font-semibold text-zinc-700"
             >
               Producto
             </label>
@@ -802,13 +1026,13 @@ export default function NuevoPedidoForm() {
                 }
                 disabled={!clienteSeleccionado || cargandoLista}
                 autoComplete="off"
-                className="w-full rounded-lg border border-zinc-300 px-4 py-3 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900 disabled:bg-zinc-50 disabled:text-zinc-400"
+                className="w-full rounded-xl border border-zinc-300 px-4 py-3.5 text-base text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900 disabled:bg-zinc-50 disabled:text-zinc-400 sm:py-4 sm:text-lg"
               />
 
               {comboboxAbierto &&
               clienteSeleccionado &&
               productosCombobox.length > 0 ? (
-                <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
+                <ul className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-zinc-200 bg-white py-1 shadow-lg">
                   {productosCombobox.map((producto) => {
                     const precio = precioProductoParaPedido(
                       preciosLista,
@@ -820,12 +1044,12 @@ export default function NuevoPedidoForm() {
                           type="button"
                           onMouseDown={(event) => event.preventDefault()}
                           onClick={() => elegirProducto(producto)}
-                          className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left hover:bg-zinc-50"
+                          className="flex w-full items-center justify-between gap-4 px-4 py-3.5 text-left hover:bg-zinc-50"
                         >
-                          <span className="font-medium text-zinc-900">
+                          <span className="text-base font-semibold text-zinc-900">
                             {producto.nombre}
                           </span>
-                          <span className="shrink-0 text-sm text-zinc-500">
+                          <span className="shrink-0 text-base text-zinc-500">
                             {formatMoneda(precio)} · {producto.unidad}
                           </span>
                         </button>
@@ -839,27 +1063,28 @@ export default function NuevoPedidoForm() {
               clienteSeleccionado &&
               productoBusqueda.trim() &&
               productosCombobox.length === 0 ? (
-                <p className="absolute z-10 mt-1 w-full rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 shadow-lg">
+                <p className="absolute z-10 mt-1 w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 text-base text-zinc-500 shadow-lg">
                   No hay productos en {categoriaCaptura} con ese criterio.
                 </p>
               ) : null}
             </div>
           </div>
 
-          <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
             <div>
-              <p className="mb-2 text-sm font-medium text-zinc-700">Captura</p>
+              <p className="mb-3 text-base font-semibold text-zinc-700">Captura</p>
               <SelectorModoCaptura
                 value={modoCaptura}
                 onChange={setModoCaptura}
                 disabled={!productoSeleccionado}
+                grande
               />
             </div>
 
-            <div className="min-w-[140px] flex-1">
+            <div className="min-w-[160px] flex-1">
               <label
                 htmlFor="cantidad-captura"
-                className="mb-2 block text-sm font-medium text-zinc-700"
+                className="mb-3 block text-base font-semibold text-zinc-700"
               >
                 {productoSeleccionado
                   ? etiquetaCantidadModo(modoCaptura)
@@ -885,7 +1110,7 @@ export default function NuevoPedidoForm() {
                       : "Ej. 5, 2 piezas"
                     : "Elige un producto"
                 }
-                className="w-full rounded-lg border border-zinc-300 px-4 py-3 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900 disabled:bg-zinc-50 disabled:text-zinc-400"
+                className="w-full rounded-xl border border-zinc-300 px-4 py-3.5 text-base text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900 disabled:bg-zinc-50 disabled:text-zinc-400 sm:py-4 sm:text-lg"
               />
             </div>
 
@@ -893,31 +1118,31 @@ export default function NuevoPedidoForm() {
               type="button"
               onClick={agregarLineaCaptura}
               disabled={!clienteSeleccionado || !productoSeleccionado}
-              className="rounded-lg bg-black px-5 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
+              className="min-h-[3.25rem] w-full rounded-xl bg-zinc-900 px-6 py-3.5 text-base font-bold text-white shadow-md transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:px-8 sm:text-lg"
             >
-              Agregar
+              ➕ Agregar al pedido
             </button>
           </div>
         </div>
 
         {lineas.length === 0 ? (
-          <p className="mt-6 rounded-lg border border-dashed border-zinc-200 px-4 py-8 text-center text-sm text-zinc-500">
+          <p className="mt-8 rounded-2xl border border-dashed border-zinc-200 px-4 py-10 text-center text-base text-zinc-500">
             {clienteSeleccionado
               ? "Elige categoría, producto y cantidad para agregar al pedido."
               : "La captura de productos se habilita al elegir un cliente."}
           </p>
         ) : (
-          <div className="mt-6 overflow-x-auto">
-            <table className="w-full min-w-[920px]">
+          <div className="mt-8 overflow-x-auto">
+            <table className="w-full min-w-[920px] border-separate border-spacing-y-2">
               <thead>
-                <tr className="border-b border-zinc-200 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
-                  <th className="pb-3 pr-3">Producto</th>
-                  <th className="pb-3 pr-3">Cantidad</th>
-                  <th className="pb-3 pr-3">Precio de lista</th>
-                  <th className="pb-3 pr-3">Precio aplicado</th>
-                  <th className="pb-3 pr-3">Peso total (kg)</th>
-                  <th className="pb-3 pr-3">Subtotal</th>
-                  <th className="pb-3">Acciones</th>
+                <tr className="text-left text-sm font-semibold uppercase tracking-wide text-zinc-500">
+                  <th className="pb-2 pr-4">Producto</th>
+                  <th className="pb-2 pr-4">Cantidad</th>
+                  <th className="pb-2 pr-4">Precio de lista</th>
+                  <th className="pb-2 pr-4">Precio aplicado</th>
+                  <th className="pb-2 pr-4">Peso total (kg)</th>
+                  <th className="pb-2 pr-4">Subtotal</th>
+                  <th className="pb-2">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -933,11 +1158,11 @@ export default function NuevoPedidoForm() {
                   );
 
                   return (
-                  <tr key={linea.key} className="border-b border-zinc-100">
-                    <td className="py-3 pr-3">
-                      <p className="font-medium text-zinc-900">{linea.nombre}</p>
+                  <tr key={linea.key} className="bg-zinc-50">
+                    <td className="rounded-l-xl py-4 pr-4 pl-3">
+                      <p className="text-base font-semibold text-zinc-900">{linea.nombre}</p>
                     </td>
-                    <td className="py-3 pr-3">
+                    <td className="py-4 pr-4">
                       <CantidadConUnidad
                         cantidad={linea.cantidad}
                         cantidadTexto={linea.cantidad_texto}
@@ -948,12 +1173,13 @@ export default function NuevoPedidoForm() {
                         onUnidadChange={(unidad) =>
                           actualizarLinea(linea.key, { unidad })
                         }
+                        grande
                       />
                     </td>
-                    <td className="py-3 pr-3 text-sm text-zinc-600">
+                    <td className="py-4 pr-4 text-base text-zinc-600">
                       {formatMoneda(linea.precio_lista)}
                     </td>
-                    <td className="py-3 pr-3">
+                    <td className="py-4 pr-4">
                       <input
                         type="number"
                         min="0"
@@ -967,14 +1193,14 @@ export default function NuevoPedidoForm() {
                             ),
                           })
                         }
-                        className={`w-28 rounded-lg border px-2 py-1.5 text-sm text-zinc-900 ${
+                        className={`w-32 rounded-xl border px-3 py-2.5 text-base text-zinc-900 ${
                           linea.precio_modificado
                             ? "border-amber-300 bg-amber-50"
                             : "border-zinc-300"
                         }`}
                       />
                     </td>
-                    <td className="py-3 pr-3">
+                    <td className="py-4 pr-4">
                       {esPesoTotalEditable(linea.unidad) ? (
                         <input
                           type="number"
@@ -989,24 +1215,24 @@ export default function NuevoPedidoForm() {
                                 valor === "" ? null : Number(valor),
                             });
                           }}
-                          className="w-24 rounded-lg border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900"
+                          className="w-28 rounded-xl border border-zinc-300 px-3 py-2.5 text-base text-zinc-900"
                         />
                       ) : (
-                        <span className="text-sm text-zinc-400">—</span>
+                        <span className="text-base text-zinc-400">—</span>
                       )}
                     </td>
-                    <td className="py-3 pr-3 text-sm font-medium text-zinc-900">
+                    <td className="py-4 pr-4 text-base font-bold text-zinc-900">
                       {subtotalTexto ? (
                         subtotalTexto
                       ) : (
-                        <span className="text-zinc-400">Pendiente</span>
+                        <span className="font-normal text-zinc-400">Pendiente</span>
                       )}
                     </td>
-                    <td className="py-3">
+                    <td className="rounded-r-xl py-4 pr-3">
                       <button
                         type="button"
                         onClick={() => eliminarLinea(linea.key)}
-                        className="text-sm font-medium text-red-600 hover:text-red-800"
+                        className="min-h-[2.75rem] rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-base font-semibold text-red-700 transition hover:bg-red-100"
                       >
                         Quitar
                       </button>
@@ -1020,29 +1246,29 @@ export default function NuevoPedidoForm() {
         )}
       </section>
 
-      <section className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
+      <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-zinc-200 sm:p-7">
         <label
           htmlFor="observaciones"
-          className="block text-sm font-medium text-zinc-700"
+          className="block text-base font-semibold text-zinc-700 sm:text-lg"
         >
           Observaciones
           <span className="ml-1 font-normal text-zinc-400">(opcional)</span>
         </label>
         <textarea
           id="observaciones"
-          rows={2}
+          rows={3}
           value={observaciones}
           onChange={(event) => setObservaciones(event.target.value)}
           placeholder="Instrucciones de entrega, corte especial, etc."
-          className="mt-2 w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+          className="mt-3 w-full rounded-xl border border-zinc-300 px-4 py-3 text-base text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900 sm:text-lg"
         />
       </section>
 
-      <div className="sticky bottom-4 flex flex-wrap items-center justify-between gap-4 rounded-xl bg-zinc-900 px-6 py-4 text-white shadow-lg">
+      <div className="sticky bottom-4 flex flex-col gap-4 rounded-2xl bg-zinc-900 px-5 py-5 text-white shadow-xl sm:flex-row sm:items-center sm:justify-between sm:px-7 sm:py-6">
         <div>
-          <p className="text-sm text-zinc-300">Total del pedido</p>
-          <p className="text-3xl font-bold">{formatMoneda(total)}</p>
-          <p className="text-xs text-zinc-400">
+          <p className="text-base text-zinc-300 sm:text-lg">Total del pedido</p>
+          <p className="text-4xl font-bold tracking-tight sm:text-5xl">{formatMoneda(total)}</p>
+          <p className="mt-1 text-sm text-zinc-400">
             {lineas.length} producto{lineas.length === 1 ? "" : "s"}
           </p>
         </div>
@@ -1054,12 +1280,12 @@ export default function NuevoPedidoForm() {
             !clienteSeleccionado ||
             lineas.length === 0 ||
             cargandoLista ||
-            validandoCredito ||
-            Boolean(advertenciaCredito)
+            (!pedidoRapidoActivo &&
+              (validandoCredito || Boolean(advertenciaCredito)))
           }
-          className="rounded-lg bg-white px-6 py-3 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+          className="min-h-[3.5rem] w-full rounded-xl bg-green-600 px-8 py-4 text-lg font-bold uppercase tracking-wide text-white shadow-lg transition hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:min-w-[240px] sm:text-xl"
         >
-          {guardando ? "Guardando..." : "Guardar pedido"}
+          {guardando ? "Guardando..." : "✅ GUARDAR PEDIDO"}
         </button>
       </div>
     </div>

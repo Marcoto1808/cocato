@@ -14,6 +14,7 @@ type Props = {
   disabled?: boolean;
   onBlur?: () => void;
   lectura?: boolean;
+  grande?: boolean;
 };
 
 function valorDesdeProps(
@@ -40,6 +41,7 @@ export default function CantidadConUnidad({
   disabled = false,
   onBlur,
   lectura = false,
+  grande = false,
 }: Props) {
   const valorProp = valorDesdeProps(cantidad, cantidadTexto);
   const [valor, setValor] = useState(valorProp);
@@ -62,7 +64,7 @@ export default function CantidadConUnidad({
   }
 
   return (
-    <div className="space-y-1.5">
+    <div className={grande ? "space-y-2" : "space-y-1.5"}>
       <input
         type="text"
         inputMode="text"
@@ -76,13 +78,18 @@ export default function CantidadConUnidad({
         onBlur={onBlur}
         aria-label={unidad === "kg" ? "Cantidad en kg" : "Cantidad en piezas"}
         placeholder={unidad === "kg" ? "Ej. 5 o medio kilo" : "Ej. 3 o 2 piezas"}
-        className="w-20 rounded-lg border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 disabled:opacity-60"
+        className={
+          grande
+            ? "w-full min-w-[7rem] rounded-xl border border-zinc-300 px-3 py-3 text-base text-zinc-900 disabled:opacity-60"
+            : "w-20 rounded-lg border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 disabled:opacity-60"
+        }
       />
       <SelectorModoCaptura
         value={unidad as UnidadCapturaPedido}
         onChange={cambiarModo}
         disabled={disabled}
-        compacto
+        compacto={!grande}
+        grande={grande}
       />
     </div>
   );

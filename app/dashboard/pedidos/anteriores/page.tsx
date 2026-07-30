@@ -2,6 +2,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { esPedidoEntregado, etiquetaEstado } from "@/lib/pedido-estados";
 import { formatMoneda } from "@/lib/pedido-calculo";
+import { nombreMostrarPedido } from "@/lib/pedido-rapido";
 import EliminarPedidoButton from "./EliminarPedidoButton";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,7 @@ type Pedido = {
   estado: string;
   fecha: string;
   total: number | null;
+  cliente_nombre_temporal: string | null;
   clientes: ClienteJoin | ClienteJoin[] | null;
   detalle_pedido: { count: number }[] | { count: number } | null;
 };
@@ -41,8 +43,7 @@ function formatFechaCorta(fecha: string) {
 }
 
 function nombreCliente(pedido: Pedido) {
-  const cliente = resolverCliente(pedido.clientes);
-  return cliente?.nombre_negocio ?? "Cliente sin asignar";
+  return nombreMostrarPedido(pedido);
 }
 
 export default async function PedidosAnterioresPage({
@@ -55,7 +56,7 @@ export default async function PedidosAnterioresPage({
   const { data: pedidos, error } = await supabase
     .from("pedidos")
     .select(
-      "id, cliente_id, estado, fecha, total, clientes(nombre_negocio), detalle_pedido(count)"
+      "id, cliente_id, estado, fecha, total, cliente_nombre_temporal, clientes(nombre_negocio), detalle_pedido(count)"
     )
     .order("fecha", { ascending: false });
 

@@ -181,6 +181,13 @@ export default function DashboardTrabajador({
           </div>
         </TarjetaEnlace>
       </div>
+
+      <Link
+        href="/dashboard/pedidos/nuevo"
+        className="flex min-h-[4.5rem] w-full items-center justify-center rounded-2xl bg-green-600 px-6 py-5 text-xl font-bold uppercase tracking-wide text-white shadow-lg transition active:scale-[0.98] hover:bg-green-500 sm:min-h-[5rem] sm:text-2xl"
+      >
+        ➕ NUEVO PEDIDO
+      </Link>
     </div>
   );
 }

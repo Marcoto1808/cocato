@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import ClientesTable from "@/components/clientes/ClientesTable";
 import VolverAlDashboardLink from "@/components/navegacion/VolverAlDashboardLink";
 import { limiteCreditoDefault } from "@/lib/cliente-credito";
+import { vincularPedidosTemporalesAlCliente, NOMBRE_CLIENTE_SISTEMA } from "@/lib/pedido-rapido";
 
 function formatearErrorSupabase(error: PostgrestError | null): string {
   if (!error) {
@@ -54,6 +56,7 @@ type FormularioCliente = {
   telefono: string;
   whatsapp: string;
   direccion: string;
+  observaciones: string;
   tipo_cliente_id: string;
   lista_precio_id: string;
   activo: boolean;
@@ -65,6 +68,7 @@ const FORMULARIO_VACIO: FormularioCliente = {
   telefono: "",
   whatsapp: "",
   direccion: "",
+  observaciones: "",
   tipo_cliente_id: "",
   lista_precio_id: "",
   activo: true,
@@ -81,6 +85,23 @@ function resolverTipoCliente(
 }
 
 export default function ClientesPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-zinc-100 p-8">
+          <p className="text-zinc-500">Cargando clientes...</p>
+        </main>
+      }
+    >
+      <ClientesPageContent />
+    </Suspense>
+  );
+}
+
+function ClientesPageContent() {
+  const searchParams = useSearchParams();
+  const desdePedido = searchParams.get("desdePedido");
+
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [tiposCliente, setTiposCliente] = useState<TipoCliente[]>([]);
   const [listasPrecio, setListasPrecio] = useState<ListaPrecio[]>([]);
@@ -93,10 +114,49 @@ export default function ClientesPage() {
   const [listaPersonalizada, setListaPersonalizada] = useState(false);
   const [formulario, setFormulario] =
     useState<FormularioCliente>(FORMULARIO_VACIO);
+  const [pedidoOrigenId, setPedidoOrigenId] = useState<string | null>(null);
+  const [nombreTemporalOrigen, setNombreTemporalOrigen] = useState<
+    string | null
+  >(null);
+  const pedidoRegistroCargado = useRef<string | null>(null);
 
   useEffect(() => {
     cargarDatos();
   }, []);
+
+  useEffect(() => {
+    if (!desdePedido || tiposCliente.length === 0) return;
+    if (pedidoRegistroCargado.current === desdePedido) return;
+    pedidoRegistroCargado.current = desdePedido;
+    void abrirRegistroDesdePedido(desdePedido);
+  }, [desdePedido, tiposCliente]);
+
+  async function abrirRegistroDesdePedido(pedidoId: string) {
+    const { data, error: pedidoError } = await supabase
+      .from("pedidos")
+      .select("cliente_nombre_temporal, cliente_telefono_temporal, observaciones")
+      .eq("id", pedidoId)
+      .single();
+
+    if (pedidoError || !data?.cliente_nombre_temporal?.trim()) {
+      setError("No se pudo cargar el pedido para registrar el cliente.");
+      return;
+    }
+
+    const tipoDefault =
+      tiposCliente.find((tipo) => tipo.codigo === "detalle") ?? tiposCliente[0];
+
+    setPedidoOrigenId(pedidoId);
+    setNombreTemporalOrigen(data.cliente_nombre_temporal.trim());
+    setFormulario({
+      ...FORMULARIO_VACIO,
+      nombre_negocio: data.cliente_nombre_temporal.trim(),
+      telefono: data.cliente_telefono_temporal?.trim() ?? "",
+      observaciones: data.observaciones?.trim() ?? "",
+      tipo_cliente_id: tipoDefault?.id ?? "",
+    });
+    setModalAbierto(true);
+  }
 
   async function cargarDatos() {
     setCargando(true);
@@ -106,6 +166,7 @@ export default function ClientesPage() {
       supabase
         .from("clientes")
         .select(COLUMNAS_CLIENTE)
+        .neq("nombre_negocio", NOMBRE_CLIENTE_SISTEMA)
         .order("nombre_negocio"),
       supabase
         .from("tipos_cliente")
@@ -172,6 +233,8 @@ export default function ClientesPage() {
     setModalAbierto(false);
     setListaPersonalizada(false);
     setFormulario(FORMULARIO_VACIO);
+    setPedidoOrigenId(null);
+    setNombreTemporalOrigen(null);
   }
 
   async function guardarCliente(event: React.FormEvent<HTMLFormElement>) {
@@ -204,6 +267,7 @@ export default function ClientesPage() {
       telefono: formulario.telefono.trim() || null,
       whatsapp: formulario.whatsapp.trim() || null,
       direccion: formulario.direccion.trim() || null,
+      observaciones: formulario.observaciones.trim() || null,
       tipo_cliente_id,
       lista_precio_id:
         listaPersonalizada && formulario.lista_precio_id.trim()
@@ -228,6 +292,22 @@ export default function ClientesPage() {
       return;
     }
 
+    if (pedidoOrigenId && nombreTemporalOrigen) {
+      const vinculacion = await vincularPedidosTemporalesAlCliente(supabase, {
+        nuevoClienteId: data.id,
+        tipoClienteId: tipo_cliente_id,
+        nombreTemporal: nombreTemporalOrigen,
+      });
+
+      if (vinculacion.error) {
+        setError(
+          `Cliente guardado, pero no se pudieron vincular los pedidos: ${vinculacion.error}`
+        );
+        setGuardando(false);
+        return;
+      }
+    }
+
     setClientes((prev) =>
       [...prev, data as Cliente].sort((a, b) =>
         a.nombre_negocio.localeCompare(b.nombre_negocio, "es")
@@ -236,7 +316,11 @@ export default function ClientesPage() {
 
     cerrarModal();
     setGuardando(false);
-    setMensajeExito(`Cliente "${nombre_negocio}" guardado correctamente.`);
+    setMensajeExito(
+      pedidoOrigenId
+        ? `Cliente "${nombre_negocio}" registrado y pedidos vinculados.`
+        : `Cliente "${nombre_negocio}" guardado correctamente.`
+    );
   }
 
   const clientesFiltrados = useMemo(() => {
@@ -426,6 +510,27 @@ export default function ClientesPage() {
                       setFormulario({
                         ...formulario,
                         direccion: event.target.value,
+                      })
+                    }
+                    className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="observaciones"
+                    className="block text-sm font-medium text-zinc-700"
+                  >
+                    Observaciones
+                  </label>
+                  <textarea
+                    id="observaciones"
+                    rows={2}
+                    value={formulario.observaciones}
+                    onChange={(event) =>
+                      setFormulario({
+                        ...formulario,
+                        observaciones: event.target.value,
                       })
                     }
                     className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"

@@ -1,13 +1,20 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { obtenerSesion } from "@/lib/auth-server";
 import {
   detectarOrigenPedido,
   etiquetaOrigenPedido,
 } from "@/lib/pedido-origen";
 import { esPedidoEntregado, etiquetaEstado } from "@/lib/pedido-estados";
+import {
+  esPedidoRapido,
+  ETIQUETA_CLIENTE_TEMPORAL,
+  nombreMostrarPedido,
+} from "@/lib/pedido-rapido";
 import { PedidoEstadoProvider } from "./PedidoEstadoActions";
 import PedidoLineasEditor from "./PedidoLineasEditor";
+import RegistrarClienteDesdePedidoLink from "@/components/pedidos/RegistrarClienteDesdePedidoLink";
 import { lineaPedidoDesdeDetalle } from "@/lib/pedido-lineas";
 
 export const dynamic = "force-dynamic";
@@ -44,6 +51,8 @@ type PedidoDetalle = {
   mensaje_original: string | null;
   observaciones: string | null;
   total: number | null;
+  cliente_nombre_temporal: string | null;
+  cliente_telefono_temporal: string | null;
   clientes: ClienteJoin | ClienteJoin[] | null;
   detalle_pedido: LineaDetalle[] | null;
 };
@@ -76,11 +85,13 @@ export default async function PedidoDetallePage({
 }: Props) {
   const { id } = await params;
   const { creado } = await searchParams;
+  const sesion = await obtenerSesion();
+  const esAdmin = sesion?.rol === "administrador";
 
   const { data: pedido, error } = await supabase
     .from("pedidos")
     .select(
-      "id, estado, fecha, mensaje_original, observaciones, total, clientes(nombre_negocio, propietario, direccion), detalle_pedido(id, producto_id, cantidad_solicitada, cantidad_texto, unidad, tipo_calculo, peso_real, precio_lista, precio_aplicado, precio_modificado, subtotal, productos(nombre))"
+      "id, estado, fecha, mensaje_original, observaciones, total, cliente_nombre_temporal, cliente_telefono_temporal, clientes(nombre_negocio, propietario, direccion), detalle_pedido(id, producto_id, cantidad_solicitada, cantidad_texto, unidad, tipo_calculo, peso_real, precio_lista, precio_aplicado, precio_modificado, subtotal, productos(nombre))"
     )
     .eq("id", id)
     .single();
@@ -90,11 +101,11 @@ export default async function PedidoDetallePage({
   }
 
   const detalle = pedido as unknown as PedidoDetalle;
-  const cliente = resolverJoin(detalle.clientes);
   const lineas = (detalle.detalle_pedido ?? []).map((linea) =>
     lineaPedidoDesdeDetalle(linea)
   );
-  const nombreNegocio = cliente?.nombre_negocio ?? "Cliente sin asignar";
+  const nombreNegocio = nombreMostrarPedido(detalle);
+  const pedidoRapido = esPedidoRapido(detalle);
   const pedidoEntregado = esPedidoEntregado(detalle.estado ?? "");
   const origen = detectarOrigenPedido(detalle.mensaje_original);
 
@@ -130,6 +141,18 @@ export default async function PedidoDetallePage({
                 <dd className="mt-0.5 font-semibold text-zinc-900">
                   {nombreNegocio}
                 </dd>
+                {pedidoRapido ? (
+                  <dd className="mt-2">
+                    <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                      {ETIQUETA_CLIENTE_TEMPORAL}
+                    </span>
+                  </dd>
+                ) : null}
+                {pedidoRapido && detalle.cliente_telefono_temporal?.trim() ? (
+                  <dd className="mt-1 text-sm text-zinc-600">
+                    {detalle.cliente_telefono_temporal.trim()}
+                  </dd>
+                ) : null}
               </div>
               <div>
                 <dt className="text-xs font-medium uppercase tracking-wide text-zinc-400">
@@ -157,6 +180,16 @@ export default async function PedidoDetallePage({
               </div>
             </dl>
           </section>
+
+          {esAdmin && pedidoRapido ? (
+            <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-zinc-200">
+              <p className="mb-3 text-sm text-zinc-600">
+                Este pedido usa un cliente temporal. Regístralo para vincular el
+                historial y futuros pedidos.
+              </p>
+              <RegistrarClienteDesdePedidoLink pedidoId={id} />
+            </section>
+          ) : null}
 
           <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-zinc-200">
             <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500">

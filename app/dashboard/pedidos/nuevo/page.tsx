@@ -14,17 +14,17 @@ export default async function NuevoPedidoPage() {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-100 p-8 pb-28">
+    <main className="min-h-screen bg-zinc-100 p-4 pb-32 sm:p-8">
       <Link
         href="/dashboard/pedidos"
-        className="mb-6 inline-block text-sm text-zinc-500 hover:text-zinc-900"
+        className="mb-6 inline-block text-base text-zinc-500 hover:text-zinc-900"
       >
         ← Volver a Pedidos
       </Link>
 
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold">Nuevo pedido</h1>
-        <p className="mt-1 text-zinc-500">Captura rápida de pedidos</p>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold sm:text-4xl">Nuevo pedido</h1>
+        <p className="mt-2 text-base text-zinc-500 sm:text-lg">Captura rápida de pedidos</p>
       </div>
 
       <NuevoPedidoForm />

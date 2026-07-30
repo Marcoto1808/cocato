@@ -14,6 +14,7 @@ import {
   type PedidoCreditoConCliente,
 } from "@/lib/cliente-credito";
 import { formatMoneda } from "@/lib/pedido-calculo";
+import { NOMBRE_CLIENTE_SISTEMA } from "@/lib/pedido-rapido";
 
 type FiltroCartera = "todos" | EstadoCreditoCartera;
 
@@ -61,6 +62,7 @@ export default function CobranzaModulo() {
           "id, nombre_negocio, limite_credito, tipos_cliente(nombre)"
         )
         .eq("activo", true)
+        .neq("nombre_negocio", NOMBRE_CLIENTE_SISTEMA)
         .order("nombre_negocio"),
       supabase
         .from("pedidos")

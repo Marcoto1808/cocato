@@ -15,6 +15,7 @@ type Props = {
   onChange: (value: UnidadCapturaPedido) => void;
   disabled?: boolean;
   compacto?: boolean;
+  grande?: boolean;
 };
 
 export default function SelectorModoCaptura({
@@ -22,6 +23,7 @@ export default function SelectorModoCaptura({
   onChange,
   disabled = false,
   compacto = false,
+  grande = false,
 }: Props) {
   return (
     <div className="flex gap-2" role="group" aria-label="Modo de captura">
@@ -34,8 +36,12 @@ export default function SelectorModoCaptura({
             type="button"
             disabled={disabled}
             onClick={() => onChange(modo)}
-            className={`rounded-lg font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
-              compacto ? "px-3 py-1.5 text-xs" : "px-5 py-2.5 text-sm"
+            className={`rounded-xl font-bold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+              grande
+                ? "min-h-[3.25rem] min-w-[5.5rem] px-6 py-3.5 text-base"
+                : compacto
+                  ? "px-3 py-1.5 text-xs"
+                  : "px-5 py-2.5 text-sm"
             } ${
               activo
                 ? "bg-zinc-900 text-white"

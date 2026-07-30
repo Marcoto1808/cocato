@@ -12,6 +12,7 @@ import PedidosTarjetasEstado, {
   type FiltroTarjetaEstado,
   type PedidoResumenTarjeta,
 } from "@/components/pedidos/PedidosTarjetasEstado";
+import { nombreMostrarPedido } from "@/lib/pedido-rapido";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,7 @@ type Pedido = {
   fecha: string;
   updated_at: string;
   total: number | null;
+  cliente_nombre_temporal: string | null;
   clientes: ClienteJoin | ClienteJoin[] | null;
   detalle_pedido: { count: number }[] | { count: number } | null;
 };
@@ -68,8 +70,7 @@ function contarPorEstado(pedidos: Pedido[]) {
 }
 
 function nombreCliente(pedido: Pedido) {
-  const cliente = resolverCliente(pedido.clientes);
-  return cliente?.nombre_negocio ?? "Cliente sin asignar";
+  return nombreMostrarPedido(pedido);
 }
 
 function contarLineas(detalle: Pedido["detalle_pedido"]): number {
@@ -157,7 +158,7 @@ export default async function PedidosPage({
   const { data: pedidos, error } = await supabase
     .from("pedidos")
     .select(
-      "id, cliente_id, estado, fecha, updated_at, total, clientes(nombre_negocio), detalle_pedido(count)"
+      "id, cliente_id, estado, fecha, updated_at, total, cliente_nombre_temporal, clientes(nombre_negocio), detalle_pedido(count)"
     )
     .order("fecha", { ascending: false });
 

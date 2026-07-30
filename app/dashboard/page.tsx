@@ -84,7 +84,7 @@ export default async function Dashboard() {
     const [pedidosRes, clientesRes, productosRes, listasRes, preciosDiaRes] =
       await Promise.all([
         supabase.from("pedidos").select("estado, updated_at"),
-        supabase.from("clientes").select("created_at").eq("activo", true),
+        supabase.from("clientes").select("created_at").eq("activo", true).neq("nombre_negocio", "Cliente temporal"),
         supabase.from("productos").select("id").eq("activo", true),
         supabase
           .from("listas_precio")
