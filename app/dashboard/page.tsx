@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { obtenerSesion } from "@/lib/auth-server";
 import { generarSaludo } from "@/lib/dashboard-admin";
@@ -6,12 +7,13 @@ import DashboardTrabajador, {
   contarClientesNuevosHoy,
   contarPedidosDashboard,
 } from "@/components/dashboard/DashboardTrabajador";
+import PreciosDelDiaPanel from "@/components/dashboard/PreciosDelDiaPanel";
+import { resolverPreciosDelDia } from "@/lib/precios-dia-dashboard";
 import {
   modulosDisponibles,
   type Modulo,
   type RolUsuario,
 } from "@/lib/roles";
-import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +81,7 @@ export default async function Dashboard() {
   const saludo = generarSaludo(sesion?.nombre, sesion?.usuario);
 
   if (rol === "colaborador") {
-    const [pedidosRes, clientesRes, productosRes, listasRes] =
+    const [pedidosRes, clientesRes, productosRes, listasRes, preciosDiaRes] =
       await Promise.all([
         supabase.from("pedidos").select("estado, updated_at"),
         supabase.from("clientes").select("created_at").eq("activo", true),
@@ -90,6 +92,10 @@ export default async function Dashboard() {
           .not("publicada_en", "is", null)
           .order("publicada_en", { ascending: false })
           .limit(1),
+        supabase
+          .from("productos")
+          .select("nombre, categoria, precio_kg")
+          .eq("activo", true),
       ]);
 
     const resumenPedidos = contarPedidosDashboard(pedidosRes.data ?? []);
@@ -98,23 +104,31 @@ export default async function Dashboard() {
     const productosActivos = productosRes.data?.length ?? 0;
     const ultimaActualizacionPrecios =
       listasRes.data?.[0]?.publicada_en ?? null;
+    const preciosDelDia = resolverPreciosDelDia(preciosDiaRes.data ?? []);
 
     return (
       <main className="min-h-screen bg-zinc-100 px-4 py-5 sm:px-6 sm:py-8">
-        <div className="mx-auto mb-5 flex max-w-3xl items-start justify-between gap-4">
+        <div className="mx-auto mb-5 flex max-w-6xl items-start justify-between gap-4">
           <h1 className="text-2xl font-bold leading-tight text-zinc-900 sm:text-3xl">
             {saludo}
           </h1>
           <CerrarSesionButton />
         </div>
 
-        <DashboardTrabajador
-          resumenPedidos={resumenPedidos}
-          totalClientes={totalClientes}
-          clientesNuevosHoy={clientesNuevosHoy}
-          productosActivos={productosActivos}
-          ultimaActualizacionPrecios={ultimaActualizacionPrecios}
-        />
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 xl:flex-row xl:items-start xl:justify-center xl:gap-8">
+          <DashboardTrabajador
+            resumenPedidos={resumenPedidos}
+            totalClientes={totalClientes}
+            clientesNuevosHoy={clientesNuevosHoy}
+            productosActivos={productosActivos}
+            ultimaActualizacionPrecios={ultimaActualizacionPrecios}
+          />
+
+          <PreciosDelDiaPanel
+            precios={preciosDelDia}
+            className="mx-auto w-full max-w-3xl xl:sticky xl:top-6 xl:mx-0 xl:w-72 xl:max-w-none xl:shrink-0"
+          />
+        </div>
       </main>
     );
   }
