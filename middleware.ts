@@ -23,6 +23,7 @@ function moduloDesdeRuta(pathname: string): Modulo | null {
   if (pathname.startsWith("/productos")) return "productos";
   if (pathname.startsWith("/usuarios")) return "usuarios";
   if (pathname.startsWith("/balance")) return "balance";
+  if (pathname.startsWith("/dashboard/reportes")) return "reportes";
   if (pathname.startsWith("/dashboard/pedidos") || pathname === "/dashboard") {
     return "pedidos";
   }

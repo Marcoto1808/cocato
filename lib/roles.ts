@@ -7,7 +7,8 @@ export type Modulo =
   | "productos"
   | "pedidos"
   | "usuarios"
-  | "balance";
+  | "balance"
+  | "reportes";
 
 export type PermisoPedido =
   | "ver_lista"
@@ -51,6 +52,7 @@ export const MODULOS_POR_ROL: Record<RolUsuario, Modulo[]> = {
     "pedidos",
     "usuarios",
     "balance",
+    "reportes",
   ],
   colaborador: ["clientes", "cobranza", "productos", "pedidos"],
 };
@@ -115,6 +117,7 @@ export const ETIQUETAS_MODULO: Record<Modulo, string> = {
   pedidos: "Pedidos",
   usuarios: "Usuarios",
   balance: "Balance",
+  reportes: "Reportes",
 };
 
 export const ETIQUETAS_ROL: Record<RolUsuario, string> = {

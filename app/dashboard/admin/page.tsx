@@ -518,16 +518,16 @@ export default async function AdminDashboardPage() {
               descripcion="Cartera y pagos pendientes"
             />
             <AccesoRapido
+              href="/dashboard/reportes"
+              titulo="Reportes"
+              icono="📊"
+              descripcion="Indicadores del negocio"
+            />
+            <AccesoRapido
               href="/usuarios"
               titulo="Usuarios"
               icono="👤"
               descripcion="Accesos del equipo"
-            />
-            <AccesoRapido
-              href="#resumen-negocio"
-              titulo="Reportes"
-              icono="📊"
-              descripcion="Indicadores generales"
             />
             <AccesoRapido
               href="#configuracion"
