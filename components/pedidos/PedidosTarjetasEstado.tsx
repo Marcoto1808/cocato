@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { formatMoneda } from "@/lib/pedido-calculo";
 import type { EstadoCategoria } from "@/lib/pedido-estados";
+import OrigenPedidoBadge from "@/components/pedidos/OrigenPedidoBadge";
 
 export type PedidoResumenTarjeta = {
   id: string;
@@ -13,6 +14,9 @@ export type PedidoResumenTarjeta = {
   total: number | null;
   lineas: number;
   fecha: string;
+  origen?: string | null;
+  mensaje_original?: string | null;
+  cliente_nombre_temporal?: string | null;
 };
 
 export type FiltroTarjetaEstado = {
@@ -139,10 +143,17 @@ export default function PedidosTarjetasEstado({
                               {formatMoneda(pedido.total ?? 0)}
                             </p>
                           </div>
-                          <p className="mt-0.5 text-xs text-zinc-500">
-                            {pedido.nombreCliente} · {pedido.lineas} producto
-                            {pedido.lineas === 1 ? "" : "s"} ·{" "}
-                            {formatFechaCorta(pedido.fecha)}
+                          <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                            <span>
+                              {pedido.nombreCliente} · {pedido.lineas} producto
+                              {pedido.lineas === 1 ? "" : "s"} ·{" "}
+                              {formatFechaCorta(pedido.fecha)}
+                            </span>
+                            <OrigenPedidoBadge
+                              origen={pedido.origen}
+                              mensaje_original={pedido.mensaje_original}
+                              cliente_nombre_temporal={pedido.cliente_nombre_temporal}
+                            />
                           </p>
                         </Link>
                         {filtro.clave === "listo" ? (

@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
 export type ListaPrecioResuelta = {
@@ -11,9 +12,10 @@ export type ListaPrecioResuelta = {
 export type PreciosListaMap = Map<string, number>;
 
 export async function obtenerListaVigentePorTipo(
-  tipoClienteId: string
+  tipoClienteId: string,
+  db: SupabaseClient = supabase
 ): Promise<ListaPrecioResuelta | null> {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("listas_precio")
     .select("id, nombre, balance_id, publicada_en")
     .eq("tipo_cliente_id", tipoClienteId)
@@ -44,10 +46,11 @@ export async function obtenerListaVigentePorTipo(
  */
 export async function resolverListaPrecioCliente(
   tipoClienteId: string,
-  listaPrecioOverrideId: string | null
+  listaPrecioOverrideId: string | null,
+  db: SupabaseClient = supabase
 ): Promise<{ lista: ListaPrecioResuelta | null; error: string | null }> {
   if (listaPrecioOverrideId) {
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from("listas_precio")
       .select("id, nombre, balance_id, publicada_en")
       .eq("id", listaPrecioOverrideId)
@@ -77,7 +80,7 @@ export async function resolverListaPrecioCliente(
   }
 
   try {
-    const lista = await obtenerListaVigentePorTipo(tipoClienteId);
+    const lista = await obtenerListaVigentePorTipo(tipoClienteId, db);
     return { lista, error: null };
   } catch (error) {
     const mensaje =
@@ -88,9 +91,10 @@ export async function resolverListaPrecioCliente(
 
 /** Precios oficiales desde lista_precio_items (sin fallback al catálogo). */
 export async function cargarPreciosLista(
-  listaPrecioId: string
+  listaPrecioId: string,
+  db: SupabaseClient = supabase
 ): Promise<PreciosListaMap> {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("lista_precio_items")
     .select("producto_id, precio")
     .eq("lista_precio_id", listaPrecioId);

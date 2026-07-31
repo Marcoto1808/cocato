@@ -54,6 +54,7 @@ import {
   ETIQUETA_CLIENTE_TEMPORAL,
   NOMBRE_CLIENTE_SISTEMA,
 } from "@/lib/pedido-rapido";
+import { crearPedido } from "@/lib/pedidos/pedido-service";
 
 type ModoInicioPedido = "seleccion" | "registrado" | "rapido";
 
@@ -655,59 +656,43 @@ export default function NuevoPedidoForm() {
 
     const observacionesFinales = observaciones.trim() || null;
 
-    const { data: pedido, error: pedidoError } = await supabase
-      .from("pedidos")
-      .insert({
-        cliente_id: clienteSeleccionado.id,
-        tipo_cliente_id: clienteSeleccionado.tipo_cliente_id,
-        lista_precio_id: listaResuelta?.id ?? null,
-        estado: "Pendiente",
-        fecha: new Date().toISOString(),
-        mensaje_original: pedidoRapidoActivo
-          ? `Pedido rápido — ${nombreRapido.trim()} — ${resumenProductos}`
-          : `Pedido manual — ${resumenProductos}`,
-        observaciones: observacionesFinales,
-        cliente_nombre_temporal: pedidoRapidoActivo
-          ? nombreRapido.trim()
-          : null,
-        cliente_telefono_temporal: null,
-        total,
-      })
-      .select("id")
-      .single();
+    const resultado = await crearPedido(supabase, {
+      origen: "manual",
+      cliente_id: clienteSeleccionado.id,
+      tipo_cliente_id: clienteSeleccionado.tipo_cliente_id,
+      lista_precio_id: listaResuelta?.id ?? null,
+      mensaje_original: pedidoRapidoActivo
+        ? `Pedido rápido — ${nombreRapido.trim()} — ${resumenProductos}`
+        : `Pedido manual — ${resumenProductos}`,
+      observaciones: observacionesFinales,
+      cliente_nombre_temporal: pedidoRapidoActivo
+        ? nombreRapido.trim()
+        : null,
+      cliente_telefono_temporal: null,
+      total,
+      lineas: lineas.map((linea) => ({
+        producto_id: linea.producto_id,
+        cantidad_solicitada: linea.cantidad,
+        cantidad_texto: linea.cantidad_texto,
+        unidad: linea.unidad,
+        tipo_calculo: linea.tipo_calculo,
+        peso_real: linea.peso_real,
+        precio_lista: linea.precio_lista,
+        precio_aplicado: linea.precio_aplicado,
+        precio_modificado: linea.precio_modificado,
+        subtotal: linea.subtotal,
+      })),
+      validarCredito: !pedidoRapidoActivo,
+      limite_credito: Number(clienteSeleccionado.limite_credito ?? 0),
+    });
 
-    if (pedidoError || !pedido) {
-      setError(`No se pudo crear el pedido. ${formatearError(pedidoError)}`);
+    if (!resultado.ok) {
+      setError(resultado.error);
       setGuardando(false);
       return;
     }
 
-    const detallePayload = lineas.map((linea) => ({
-      pedido_id: pedido.id,
-      producto_id: linea.producto_id,
-      cantidad_solicitada: linea.cantidad,
-      cantidad_texto: linea.cantidad_texto,
-      unidad: linea.unidad,
-      tipo_calculo: linea.tipo_calculo,
-      peso_real: linea.peso_real,
-      precio_lista: linea.precio_lista,
-      precio_aplicado: linea.precio_aplicado,
-      precio_modificado: linea.precio_modificado,
-      subtotal: linea.subtotal,
-    }));
-
-    const { error: detalleError } = await supabase
-      .from("detalle_pedido")
-      .insert(detallePayload);
-
-    if (detalleError) {
-      await supabase.from("pedidos").delete().eq("id", pedido.id);
-      setError(`No se pudo guardar el detalle. ${formatearError(detalleError)}`);
-      setGuardando(false);
-      return;
-    }
-
-    router.push(`/dashboard/pedidos/${pedido.id}?creado=1`);
+    router.push(`/dashboard/pedidos/${resultado.pedidoId}?creado=1`);
     router.refresh();
   }
 

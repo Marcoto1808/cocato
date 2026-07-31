@@ -31,6 +31,8 @@ type Pedido = {
   fecha: string;
   updated_at: string;
   total: number | null;
+  origen: string | null;
+  mensaje_original: string | null;
   cliente_nombre_temporal: string | null;
   clientes: ClienteJoin | ClienteJoin[] | null;
   detalle_pedido: { count: number }[] | { count: number } | null;
@@ -88,6 +90,9 @@ function pedidoAResumen(pedido: Pedido): PedidoResumenTarjeta {
     total: pedido.total,
     lineas: contarLineas(pedido.detalle_pedido),
     fecha: pedido.fecha,
+    origen: pedido.origen,
+    mensaje_original: pedido.mensaje_original,
+    cliente_nombre_temporal: pedido.cliente_nombre_temporal,
   };
 }
 
@@ -158,7 +163,7 @@ export default async function PedidosPage({
   const { data: pedidos, error } = await supabase
     .from("pedidos")
     .select(
-      "id, cliente_id, estado, fecha, updated_at, total, cliente_nombre_temporal, clientes(nombre_negocio), detalle_pedido(count)"
+      "id, cliente_id, estado, fecha, updated_at, total, origen, mensaje_original, cliente_nombre_temporal, clientes(nombre_negocio), detalle_pedido(count)"
     )
     .order("fecha", { ascending: false });
 

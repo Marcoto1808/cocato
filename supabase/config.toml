@@ -1,0 +1,9 @@
+# Supabase local config (opcional — para `supabase start` / deploy)
+# Docs: https://supabase.com/docs/guides/functions
+
+[project]
+# id = "tu-project-ref"
+
+[functions.whatsapp-webhook]
+# Meta llama al webhook sin JWT de Supabase
+verify_jwt = false

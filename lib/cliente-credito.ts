@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { esNotaPendientePago } from "@/lib/pedido-pago";
 
@@ -104,9 +105,10 @@ export function clienteCreditoBloqueado(
 }
 
 export async function cargarPedidosCreditoCliente(
-  clienteId: string
+  clienteId: string,
+  db: SupabaseClient = supabase
 ): Promise<PedidoCredito[]> {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("pedidos")
     .select("id, total, estado, estado_pago, fecha, pagado_en")
     .eq("cliente_id", clienteId)
@@ -121,9 +123,10 @@ export async function cargarPedidosCreditoCliente(
 
 export async function evaluarCreditoCliente(
   clienteId: string,
-  limiteCredito: number
+  limiteCredito: number,
+  db: SupabaseClient = supabase
 ): Promise<{ permitido: boolean; mensaje?: string; resumen: ResumenCreditoCliente }> {
-  const pedidos = await cargarPedidosCreditoCliente(clienteId);
+  const pedidos = await cargarPedidosCreditoCliente(clienteId, db);
   const resumen = calcularResumenCredito(pedidos, limiteCredito);
   const validacion = clientePuedeCrearPedido(resumen);
 

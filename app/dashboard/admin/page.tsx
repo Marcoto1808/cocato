@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { obtenerSesion } from "@/lib/auth-server";
 import AdminBarraSuperior from "./AdminBarraSuperior";
 import CerrarSesionButton from "@/components/navegacion/CerrarSesionButton";
+import WhatsAppConfigPanel from "@/components/admin/WhatsAppConfigPanel";
 import {
   esClienteActivoReciente,
   esFechaHoy,
@@ -643,12 +644,22 @@ export default async function AdminDashboardPage() {
 
         <section
           id="configuracion"
-          className="rounded-2xl border border-dashed border-zinc-300 bg-white p-6 shadow-sm"
+          className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm"
         >
           <h2 className="text-base font-semibold text-zinc-900">Configuración</h2>
-          <p className="mt-2 text-sm text-zinc-500">
-            Módulo de configuración disponible próximamente.
-          </p>
+
+          <div className="mt-6 border-t border-zinc-100 pt-6">
+            <h3 className="text-sm font-semibold text-zinc-900">
+              Automatización de WhatsApp
+            </h3>
+            <p className="mt-1 text-sm text-zinc-500">
+              Conecta la Cloud API de Meta. Los pedidos aparecen en la bandeja de
+              Pedidos; no hay bandeja operativa de conversaciones.
+            </p>
+            <div className="mt-4">
+              <WhatsAppConfigPanel />
+            </div>
+          </div>
         </section>
       </div>
     </main>

@@ -8,7 +8,12 @@ import {
 } from "@/lib/roles";
 import { rutaDashboardPorRol } from "@/lib/navegacion-dashboard";
 
-const RUTAS_PUBLICAS = ["/login", "/api/auth/login", "/api/auth/logout"];
+const RUTAS_PUBLICAS = [
+  "/login",
+  "/api/auth/login",
+  "/api/auth/logout",
+  "/api/webhooks/whatsapp",
+];
 
 function esRutaPublica(pathname: string) {
   return RUTAS_PUBLICAS.some(

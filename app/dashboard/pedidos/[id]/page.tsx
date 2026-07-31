@@ -3,9 +3,10 @@ import { notFound } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { obtenerSesion } from "@/lib/auth-server";
 import {
-  detectarOrigenPedido,
+  resolverOrigenPedido,
   etiquetaOrigenPedido,
 } from "@/lib/pedido-origen";
+import OrigenPedidoBadge from "@/components/pedidos/OrigenPedidoBadge";
 import { esPedidoEntregado, etiquetaEstado } from "@/lib/pedido-estados";
 import {
   esPedidoRapido,
@@ -48,6 +49,7 @@ type PedidoDetalle = {
   id: string;
   estado: string | null;
   fecha: string;
+  origen: string | null;
   mensaje_original: string | null;
   observaciones: string | null;
   total: number | null;
@@ -91,7 +93,7 @@ export default async function PedidoDetallePage({
   const { data: pedido, error } = await supabase
     .from("pedidos")
     .select(
-      "id, estado, fecha, mensaje_original, observaciones, total, cliente_nombre_temporal, cliente_telefono_temporal, clientes(nombre_negocio, propietario, direccion), detalle_pedido(id, producto_id, cantidad_solicitada, cantidad_texto, unidad, tipo_calculo, peso_real, precio_lista, precio_aplicado, precio_modificado, subtotal, productos(nombre))"
+      "id, estado, fecha, origen, mensaje_original, observaciones, total, cliente_nombre_temporal, cliente_telefono_temporal, clientes(nombre_negocio, propietario, direccion), detalle_pedido(id, producto_id, cantidad_solicitada, cantidad_texto, unidad, tipo_calculo, peso_real, precio_lista, precio_aplicado, precio_modificado, subtotal, productos(nombre))"
     )
     .eq("id", id)
     .single();
@@ -107,7 +109,7 @@ export default async function PedidoDetallePage({
   const nombreNegocio = nombreMostrarPedido(detalle);
   const pedidoRapido = esPedidoRapido(detalle);
   const pedidoEntregado = esPedidoEntregado(detalle.estado ?? "");
-  const origen = detectarOrigenPedido(detalle.mensaje_original);
+  const origen = resolverOrigenPedido(detalle);
 
   return (
     <PedidoEstadoProvider pedidoId={id} estadoInicial={detalle.estado}>
@@ -174,8 +176,19 @@ export default async function PedidoDetallePage({
                 <dt className="text-xs font-medium uppercase tracking-wide text-zinc-400">
                   Origen
                 </dt>
-                <dd className="mt-0.5 text-zinc-700">
-                  {etiquetaOrigenPedido(origen)}
+                <dd className="mt-0.5">
+                  {origen === "rapido" ? (
+                    <span className="text-zinc-700">
+                      {etiquetaOrigenPedido(origen)}
+                    </span>
+                  ) : (
+                    <OrigenPedidoBadge
+                      origen={detalle.origen}
+                      mensaje_original={detalle.mensaje_original}
+                      cliente_nombre_temporal={detalle.cliente_nombre_temporal}
+                      className="text-sm"
+                    />
+                  )}
                 </dd>
               </div>
             </dl>
