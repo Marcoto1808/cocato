@@ -2,6 +2,47 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1
 import type { MensajeHistorial } from "../types.ts";
 import { historialMaxMensajes } from "../env.ts";
 
+export async function actualizarEstadoMensajePorWamid(
+  db: SupabaseClient,
+  input: {
+    waMessageId: string;
+    status: string;
+    errorMessage?: string | null;
+    ycloudEventId?: string;
+  }
+): Promise<{ encontrado: boolean; status?: string }> {
+  const { data, error } = await db
+    .from("whatsapp_messages")
+    .select("id, payload_raw")
+    .eq("wa_message_id", input.waMessageId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!data) return { encontrado: false };
+
+  const previo =
+    data.payload_raw && typeof data.payload_raw === "object"
+      ? (data.payload_raw as Record<string, unknown>)
+      : {};
+
+  const update: Record<string, unknown> = {
+    payload_raw: {
+      ...previo,
+      ycloudStatus: input.status,
+      ycloudStatusAt: new Date().toISOString(),
+      ycloudEventId: input.ycloudEventId ?? previo.ycloudEventId,
+    },
+  };
+
+  if (input.status === "failed" && input.errorMessage) {
+    update.error_procesamiento = input.errorMessage;
+  }
+
+  await db.from("whatsapp_messages").update(update).eq("id", data.id);
+
+  return { encontrado: true, status: input.status };
+}
+
 export async function mensajeYaExiste(
   db: SupabaseClient,
   waMessageId: string

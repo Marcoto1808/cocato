@@ -4,6 +4,42 @@ export type WhatsAppInboundMessage = {
   texto: string;
   phoneNumberId?: string;
   timestamp?: string;
+  nombreContacto?: string;
+  /** ID del evento YCloud (deduplicación de reintentos). */
+  ycloudEventId?: string;
+};
+
+export type WhatsAppMessageStatusUpdate = {
+  waMessageId: string;
+  status: string;
+  errorMessage?: string | null;
+  ycloudEventId?: string;
+  timestamp?: string;
+};
+
+export type YCloudWebhookEvent = {
+  id: string;
+  type: string;
+  apiVersion?: string;
+  createTime?: string;
+  whatsappInboundMessage?: {
+    id?: string;
+    wamid?: string;
+    from?: string;
+    to?: string;
+    type?: string;
+    sendTime?: string;
+    text?: { body?: string };
+    customerProfile?: { name?: string };
+  };
+  whatsappMessage?: {
+    id?: string;
+    wamid?: string;
+    status?: string;
+    updateTime?: string;
+    errorMessage?: string;
+    error?: { message?: string };
+  };
 };
 
 export type WhatsAppWebhookPayload = {

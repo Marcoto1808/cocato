@@ -1,3 +1,9 @@
+import {
+  enviarMensajeTextoYCloud,
+  verificarConexionYCloud,
+  whatsappProvider,
+} from "@/lib/whatsapp/ycloud-webhook";
+
 const API_VERSION = process.env.WHATSAPP_API_VERSION?.trim() || "v21.0";
 
 export type EnviarMensajeResultado =
@@ -26,7 +32,7 @@ function resolverPhoneNumberId(override?: string | null): string {
   return phoneNumberId;
 }
 
-export async function enviarMensajeTextoWhatsApp(input: {
+async function enviarViaMeta(input: {
   to: string;
   body: string;
   phoneNumberId?: string | null;
@@ -76,9 +82,29 @@ export async function enviarMensajeTextoWhatsApp(input: {
   }
 }
 
+export async function enviarMensajeTextoWhatsApp(input: {
+  to: string;
+  body: string;
+  phoneNumberId?: string | null;
+}): Promise<EnviarMensajeResultado> {
+  if (whatsappProvider() === "ycloud") {
+    return enviarMensajeTextoYCloud({
+      to: input.to,
+      body: input.body,
+      fromOverride: input.phoneNumberId,
+    });
+  }
+
+  return enviarViaMeta(input);
+}
+
 export async function verificarConexionWhatsApp(
   phoneNumberId?: string | null
 ): Promise<{ ok: boolean; detalle: string }> {
+  if (whatsappProvider() === "ycloud") {
+    return verificarConexionYCloud(phoneNumberId);
+  }
+
   try {
     const accessToken = obtenerAccessToken();
     const id = resolverPhoneNumberId(phoneNumberId);

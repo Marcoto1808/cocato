@@ -283,19 +283,22 @@ export default function WhatsAppConfigPanel() {
             Credenciales (env)
           </p>
           <ul className="mt-2 space-y-1 text-xs text-zinc-600">
-            <li>Access Token (Vercel, opcional): {credenciales.accessToken ? "✓" : "✗"}</li>
+            <li>Proveedor: {(credenciales as { provider?: string }).provider ?? "ycloud"}</li>
+            <li>YCLOUD_API_KEY (Supabase): {credenciales.ycloudApiKey ? "✓" : "✗"}</li>
+            <li>YCLOUD_WEBHOOK_SECRET (Supabase): {credenciales.ycloudWebhookSecret ? "✓" : "✗"}</li>
+            <li>YCLOUD_WHATSAPP_FROM (Supabase): {credenciales.ycloudFrom ? "✓" : "✗"}</li>
             <li>Service Role (panel admin): {credenciales.serviceRole ? "✓" : "✗"}</li>
             <li>OpenAI (Supabase secrets): {credenciales.openai ? "✓ en Vercel" : "— en Supabase"}</li>
           </ul>
           <p className="mt-2 text-xs text-zinc-500">
-            WhatsApp y OpenAI deben estar en los secrets de Supabase Edge Functions.
+            WhatsApp (YCloud) y OpenAI deben estar en los secrets de Supabase Edge Functions.
           </p>
         </div>
       </div>
 
       <div>
         <label className="block text-sm font-medium text-zinc-700">
-          Webhook URL (Meta → Supabase)
+          Webhook URL (YCloud → Supabase)
         </label>
         <input
           readOnly
@@ -306,8 +309,8 @@ export default function WhatsAppConfigPanel() {
           className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700"
         />
         <p className="mt-1 text-xs text-zinc-500">
-          Los mensajes se procesan en Supabase Edge Functions, no en Vercel.
-          Usa el Verify Token configurado en los secrets de Supabase.
+          Registra esta URL en YCloud con los eventos whatsapp.inbound_message.received
+          y whatsapp.message.updated. Los mensajes se procesan en Supabase Edge Functions.
         </p>
       </div>
 
@@ -327,14 +330,14 @@ export default function WhatsAppConfigPanel() {
 
           <div>
             <label className="block text-sm font-medium text-zinc-700">
-              Phone Number ID
+              Número WhatsApp del negocio
             </label>
             <input
               value={config.phone_number_id ?? ""}
               onChange={(event) =>
                 setConfig({ ...config, phone_number_id: event.target.value })
               }
-              placeholder="ID de número en Meta (operativo)"
+              placeholder="E.164 para YCloud, ej. +525512345678"
               className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
             />
           </div>

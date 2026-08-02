@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { emitirPedidoEvento } from "../domain/pedido-events.ts";
 import { analizarMensajeParaPedido } from "../openai/extract-pedido.ts";
+import { interpretarMensajeSimple } from "../openai/reglas-simples.ts";
 import {
   calcularTotalLineas,
   crearLineaPedido,
@@ -191,12 +192,31 @@ export async function procesarMensajeConPedido(input: {
   const productos = await listarProductosCompletos(input.db);
   const catalogoTexto = catalogoParaPrompt(productos);
 
-  const analisis = await analizarMensajeParaPedido({
-    mensajeUsuario: input.mensajeOriginal,
-    historial: input.historial,
-    catalogoTexto,
-    nombreCliente: input.cliente.nombre_negocio,
-  });
+  let analisis;
+  try {
+    analisis = await analizarMensajeParaPedido({
+      mensajeUsuario: input.mensajeOriginal,
+      historial: input.historial,
+      catalogoTexto,
+      nombreCliente: input.cliente.nombre_negocio,
+    });
+  } catch (error) {
+    const detalle =
+      error instanceof Error ? error.message : "Error al consultar OpenAI.";
+    console.warn("[pedido] OpenAI falló, intentando reglas simples:", detalle);
+
+    const fallback = interpretarMensajeSimple({
+      mensaje: input.mensajeOriginal,
+      productos,
+      nombreCliente: input.cliente.nombre_negocio,
+    });
+
+    if (!fallback) {
+      throw error;
+    }
+
+    analisis = fallback;
+  }
 
   if (!analisis.es_pedido || analisis.lineas.length === 0) {
     return {

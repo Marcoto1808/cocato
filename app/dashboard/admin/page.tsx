@@ -653,7 +653,7 @@ export default async function AdminDashboardPage() {
               Automatización de WhatsApp
             </h3>
             <p className="mt-1 text-sm text-zinc-500">
-              Conecta la Cloud API de Meta. Los pedidos aparecen en la bandeja de
+              Conecta WhatsApp vía YCloud. Los pedidos aparecen en la bandeja de
               Pedidos; no hay bandeja operativa de conversaciones.
             </p>
             <div className="mt-4">

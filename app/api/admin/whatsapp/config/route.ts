@@ -14,6 +14,7 @@ import {
   handlerWebhookWhatsApp,
   urlWebhookWhatsAppSupabase,
 } from "@/lib/whatsapp-webhook-url";
+import { whatsappProvider } from "@/lib/whatsapp/ycloud-webhook";
 
 async function requerirAdmin() {
   const sesion = await obtenerSesion();
@@ -44,7 +45,15 @@ export async function GET() {
   }
 
   const webhookSupabase = urlWebhookWhatsAppSupabase();
+  const provider = whatsappProvider();
   const credenciales = {
+    provider,
+    ycloudApiKey: Boolean(process.env.YCLOUD_API_KEY?.trim()),
+    ycloudWebhookSecret: Boolean(
+      process.env.YCLOUD_WEBHOOK_SECRET?.trim() ||
+        process.env.WHATSAPP_WEBHOOK_SECRET?.trim()
+    ),
+    ycloudFrom: Boolean(process.env.YCLOUD_WHATSAPP_FROM?.trim()),
     accessToken: Boolean(process.env.WHATSAPP_ACCESS_TOKEN?.trim()),
     verifyToken: Boolean(process.env.WHATSAPP_VERIFY_TOKEN?.trim()),
     appSecret: Boolean(process.env.WHATSAPP_APP_SECRET?.trim()),
@@ -77,9 +86,17 @@ export async function GET() {
 
     const conexion = config?.phone_number_id
       ? await verificarConexionSegura(config.phone_number_id)
-      : credenciales.phoneNumberIdEnv
-        ? await verificarConexionSegura(process.env.WHATSAPP_PHONE_NUMBER_ID)
-        : { ok: false, detalle: "Phone Number ID no configurado." };
+      : provider === "ycloud" && process.env.YCLOUD_WHATSAPP_FROM
+        ? await verificarConexionSegura(process.env.YCLOUD_WHATSAPP_FROM)
+        : credenciales.phoneNumberIdEnv
+          ? await verificarConexionSegura(process.env.WHATSAPP_PHONE_NUMBER_ID)
+          : {
+              ok: false,
+              detalle:
+                provider === "ycloud"
+                  ? "YCLOUD_WHATSAPP_FROM no configurado."
+                  : "Phone Number ID no configurado.",
+            };
 
     return NextResponse.json({
       config,

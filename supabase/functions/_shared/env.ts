@@ -18,6 +18,41 @@ export function envRequerido(...nombres: string[]): string {
   return valor;
 }
 
+export type WhatsAppProvider = "ycloud" | "meta";
+
+export function whatsappProvider(): WhatsAppProvider {
+  const explicito = envOpcional("WHATSAPP_PROVIDER")?.toLowerCase();
+  if (explicito === "meta" || explicito === "ycloud") {
+    return explicito;
+  }
+  if (envOpcional("YCLOUD_API_KEY")) return "ycloud";
+  return "meta";
+}
+
+export function ycloudApiKey(): string {
+  return envRequerido("YCLOUD_API_KEY");
+}
+
+export function ycloudWebhookSecret(): string | null {
+  return envOpcional("YCLOUD_WEBHOOK_SECRET", "WHATSAPP_WEBHOOK_SECRET");
+}
+
+/** Número del negocio en E.164 (ej. +525512345678). */
+export function ycloudWhatsAppFrom(override?: string | null): string {
+  const from =
+    override?.trim() ||
+    envOpcional("YCLOUD_WHATSAPP_FROM", "WHATSAPP_PHONE_NUMBER") ||
+    envOpcional("PHONE_NUMBER_ID", "WHATSAPP_PHONE_NUMBER_ID");
+
+  if (!from) {
+    throw new Error(
+      "Número WhatsApp del negocio faltante. Configura YCLOUD_WHATSAPP_FROM o PHONE_NUMBER_ID."
+    );
+  }
+
+  return from.startsWith("+") ? from : `+${from.replace(/\D/g, "")}`;
+}
+
 export function whatsappAccessToken(): string {
   return envRequerido("WHATSAPP_TOKEN", "WHATSAPP_ACCESS_TOKEN");
 }
