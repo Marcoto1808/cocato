@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
 import { esPedidoEntregado, etiquetaEstado } from "@/lib/pedido-estados";
 import { formatMoneda } from "@/lib/pedido-calculo";
+import { formatFechaCortaMx } from "@/lib/pedido-fecha";
 import { nombreMostrarPedido } from "@/lib/pedido-rapido";
+import { cargarPedidosTablero } from "@/lib/pedidos/pedidos-lista";
 import EliminarPedidoButton from "./EliminarPedidoButton";
 
 export const dynamic = "force-dynamic";
@@ -22,24 +23,10 @@ type Pedido = {
   detalle_pedido: { count: number }[] | { count: number } | null;
 };
 
-function resolverCliente(
-  clientes: ClienteJoin | ClienteJoin[] | null | undefined
-): ClienteJoin | null {
-  if (!clientes) return null;
-  return Array.isArray(clientes) ? (clientes[0] ?? null) : clientes;
-}
-
 function contarLineas(detalle: Pedido["detalle_pedido"]): number {
   if (!detalle) return 0;
   if (Array.isArray(detalle)) return detalle[0]?.count ?? 0;
   return detalle.count ?? 0;
-}
-
-function formatFechaCorta(fecha: string) {
-  return new Date(fecha).toLocaleDateString("es-MX", {
-    day: "numeric",
-    month: "short",
-  });
 }
 
 function nombreCliente(pedido: Pedido) {
@@ -53,14 +40,10 @@ export default async function PedidosAnterioresPage({
 }) {
   const { eliminado, actualizado } = await searchParams;
 
-  const { data: pedidos, error } = await supabase
-    .from("pedidos")
-    .select(
-      "id, cliente_id, estado, fecha, total, cliente_nombre_temporal, clientes(nombre_negocio), detalle_pedido(count)"
-    )
-    .order("fecha", { ascending: false });
+  const { data: pedidos, error } = await cargarPedidosTablero();
 
   if (error) {
+    console.error("[pedidos/anteriores] Error al cargar historial:", error);
     return (
       <main className="min-h-screen bg-zinc-100 p-8">
         <Link
@@ -72,6 +55,7 @@ export default async function PedidosAnterioresPage({
         <h1 className="mb-6 text-3xl font-bold">Pedidos anteriores</h1>
         <div className="rounded-xl bg-white p-6 shadow">
           <p className="text-red-600">Error al cargar el historial.</p>
+          <p className="mt-2 text-sm text-zinc-500">{error.message}</p>
         </div>
       </main>
     );
@@ -138,7 +122,7 @@ export default async function PedidosAnterioresPage({
                       </p>
                       <p className="mt-1 text-xs text-zinc-500">
                         {lineas} producto{lineas === 1 ? "" : "s"} ·{" "}
-                        {formatFechaCorta(pedido.fecha)}
+                        {formatFechaCortaMx(pedido.fecha)}
                       </p>
                     </div>
                   </div>

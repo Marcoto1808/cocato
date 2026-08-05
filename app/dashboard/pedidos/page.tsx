@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
 import { obtenerRutaDashboardServidor } from "@/lib/navegacion-dashboard-server";
-import { esMismoDiaCalendario } from "@/lib/pedido-fecha";
+import { esMismoDiaCalendario, formatFechaCortaMx } from "@/lib/pedido-fecha";
+import { cargarPedidosTablero } from "@/lib/pedidos/pedidos-lista";
 import {
   esPedidoEntregado,
   esPedidoOperativo,
@@ -37,13 +37,6 @@ type Pedido = {
   clientes: ClienteJoin | ClienteJoin[] | null;
   detalle_pedido: { count: number }[] | { count: number } | null;
 };
-
-function resolverCliente(
-  clientes: ClienteJoin | ClienteJoin[] | null | undefined
-): ClienteJoin | null {
-  if (!clientes) return null;
-  return Array.isArray(clientes) ? (clientes[0] ?? null) : clientes;
-}
 
 type EstadoCategoriaTablero = EstadoCategoria;
 
@@ -89,7 +82,7 @@ function pedidoAResumen(pedido: Pedido): PedidoResumenTarjeta {
     nombreCliente: nombreCliente(pedido),
     total: pedido.total,
     lineas: contarLineas(pedido.detalle_pedido),
-    fecha: pedido.fecha,
+    fechaCorta: formatFechaCortaMx(pedido.fecha),
     origen: pedido.origen,
     mensaje_original: pedido.mensaje_original,
     cliente_nombre_temporal: pedido.cliente_nombre_temporal,
@@ -160,14 +153,10 @@ export default async function PedidosPage({
   const { actualizado, creado } = await searchParams;
   const rutaDashboard = await obtenerRutaDashboardServidor();
 
-  const { data: pedidos, error } = await supabase
-    .from("pedidos")
-    .select(
-      "id, cliente_id, estado, fecha, updated_at, total, origen, mensaje_original, cliente_nombre_temporal, clientes(nombre_negocio), detalle_pedido(count)"
-    )
-    .order("fecha", { ascending: false });
+  const { data: pedidos, error } = await cargarPedidosTablero();
 
   if (error) {
+    console.error("[pedidos] Error al cargar tablero:", error);
     return (
       <main className="min-h-screen bg-zinc-100 p-8">
         <Link
@@ -179,6 +168,7 @@ export default async function PedidosPage({
         <h1 className="mb-6 text-3xl font-bold">Pedidos</h1>
         <div className="rounded-xl bg-white p-6 shadow">
           <p className="text-red-600">Error al cargar los pedidos.</p>
+          <p className="mt-2 text-sm text-zinc-500">{error.message}</p>
         </div>
       </main>
     );

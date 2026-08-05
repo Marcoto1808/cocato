@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { supabase } from "@/lib/supabase";
 import { obtenerSesion } from "@/lib/auth-server";
 import {
   resolverOrigenPedido,
@@ -17,6 +16,8 @@ import { PedidoEstadoProvider } from "./PedidoEstadoActions";
 import PedidoLineasEditor from "./PedidoLineasEditor";
 import RegistrarClienteDesdePedidoLink from "@/components/pedidos/RegistrarClienteDesdePedidoLink";
 import { lineaPedidoDesdeDetalle } from "@/lib/pedido-lineas";
+import { formatFechaPedidoDetalle } from "@/lib/pedido-fecha";
+import { cargarPedidoDetalle } from "@/lib/pedidos/pedidos-lista";
 
 export const dynamic = "force-dynamic";
 
@@ -59,23 +60,6 @@ type PedidoDetalle = {
   detalle_pedido: LineaDetalle[] | null;
 };
 
-function resolverJoin<T>(valor: T | T[] | null | undefined): T | null {
-  if (!valor) return null;
-  return Array.isArray(valor) ? (valor[0] ?? null) : valor;
-}
-
-function formatearFechaPedido(fecha: string) {
-  const parsed = new Date(`${fecha}T12:00:00`);
-  if (Number.isNaN(parsed.getTime())) return fecha;
-
-  return parsed.toLocaleDateString("es-MX", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
 type Props = {
   params: Promise<{ id: string }>;
   searchParams: Promise<{ creado?: string }>;
@@ -90,15 +74,10 @@ export default async function PedidoDetallePage({
   const sesion = await obtenerSesion();
   const esAdmin = sesion?.rol === "administrador";
 
-  const { data: pedido, error } = await supabase
-    .from("pedidos")
-    .select(
-      "id, estado, fecha, origen, mensaje_original, observaciones, total, cliente_nombre_temporal, cliente_telefono_temporal, clientes(nombre_negocio, propietario, direccion), detalle_pedido(id, producto_id, cantidad_solicitada, cantidad_texto, unidad, tipo_calculo, peso_real, precio_lista, precio_aplicado, precio_modificado, subtotal, productos(nombre))"
-    )
-    .eq("id", id)
-    .single();
+  const { data: pedido, error } = await cargarPedidoDetalle(id);
 
   if (error || !pedido) {
+    console.error("[pedidos/detalle] Error al cargar pedido:", error);
     notFound();
   }
 
@@ -169,7 +148,7 @@ export default async function PedidoDetallePage({
                   Fecha
                 </dt>
                 <dd className="mt-0.5 text-zinc-700">
-                  {formatearFechaPedido(detalle.fecha)}
+                  {formatFechaPedidoDetalle(detalle.fecha)}
                 </dd>
               </div>
               <div>

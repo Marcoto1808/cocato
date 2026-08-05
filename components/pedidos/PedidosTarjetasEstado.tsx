@@ -13,7 +13,7 @@ export type PedidoResumenTarjeta = {
   nombreCliente: string;
   total: number | null;
   lineas: number;
-  fecha: string;
+  fechaCorta: string;
   origen?: string | null;
   mensaje_original?: string | null;
   cliente_nombre_temporal?: string | null;
@@ -32,16 +32,19 @@ type Props = {
   pedidosPorEstado: Record<EstadoCategoria, PedidoResumenTarjeta[]>;
 };
 
-function formatFechaCorta(fecha: string) {
-  return new Date(fecha).toLocaleDateString("es-MX", {
-    day: "numeric",
-    month: "short",
-  });
+function faltaColumnaEstadoPago(mensaje: string | undefined): boolean {
+  if (!mensaje) return false;
+  const normalizado = mensaje.toLowerCase();
+  return (
+    normalizado.includes("estado_pago") &&
+    normalizado.includes("does not exist")
+  );
 }
 
 function EntregarPedidoButton({ pedidoId }: { pedidoId: string }) {
   const router = useRouter();
   const [cargando, setCargando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleEntregar(event: React.MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
@@ -50,28 +53,44 @@ function EntregarPedidoButton({ pedidoId }: { pedidoId: string }) {
     if (cargando) return;
 
     setCargando(true);
+    setError(null);
 
-    const { error } = await supabase
+    let resultado = await supabase
       .from("pedidos")
       .update({ estado: "Entregado", estado_pago: "pendiente" })
       .eq("id", pedidoId);
 
+    if (resultado.error && faltaColumnaEstadoPago(resultado.error.message)) {
+      resultado = await supabase
+        .from("pedidos")
+        .update({ estado: "Entregado" })
+        .eq("id", pedidoId);
+    }
+
     setCargando(false);
 
-    if (!error) {
-      router.refresh();
+    if (resultado.error) {
+      setError("No se pudo marcar como entregado.");
+      return;
     }
+
+    router.refresh();
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleEntregar}
-      disabled={cargando}
-      className="shrink-0 self-stretch rounded-xl bg-emerald-600 px-5 py-3.5 text-sm font-bold uppercase tracking-wider text-white shadow-md ring-2 ring-emerald-500/30 transition hover:bg-emerald-700 active:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60 sm:min-w-[9.5rem] sm:text-base"
-    >
-      {cargando ? "Guardando..." : "Entregado"}
-    </button>
+    <div className="flex shrink-0 flex-col gap-1 self-stretch">
+      {error ? (
+        <p className="max-w-[9.5rem] text-xs text-red-600">{error}</p>
+      ) : null}
+      <button
+        type="button"
+        onClick={handleEntregar}
+        disabled={cargando}
+        className="shrink-0 self-stretch rounded-xl bg-emerald-600 px-5 py-3.5 text-sm font-bold uppercase tracking-wider text-white shadow-md ring-2 ring-emerald-500/30 transition hover:bg-emerald-700 active:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60 sm:min-w-[9.5rem] sm:text-base"
+      >
+        {cargando ? "Guardando..." : "Entregado"}
+      </button>
+    </div>
   );
 }
 
@@ -147,7 +166,7 @@ export default function PedidosTarjetasEstado({
                             <span>
                               {pedido.nombreCliente} · {pedido.lineas} producto
                               {pedido.lineas === 1 ? "" : "s"} ·{" "}
-                              {formatFechaCorta(pedido.fecha)}
+                              {pedido.fechaCorta}
                             </span>
                             <OrigenPedidoBadge
                               origen={pedido.origen}
