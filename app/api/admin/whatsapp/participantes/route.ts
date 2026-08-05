@@ -41,7 +41,7 @@ export async function GET() {
         participantes: [],
         clientes: clientes ?? [],
         aviso:
-          "SUPABASE_SERVICE_ROLE_KEY no configurada: no se pueden listar participantes desde el panel.",
+          "Clave de servidor Supabase no configurada: no se pueden listar participantes (SUPABASE_SERVICE_ROLE_KEY o SUPABASE_SECRET_KEY).",
       });
     }
 
@@ -65,7 +65,7 @@ export async function PUT(request: Request) {
     return NextResponse.json(
       {
         error:
-          "SUPABASE_SERVICE_ROLE_KEY no configurada. Agrégala en Vercel para gestionar participantes.",
+          "Clave de servidor Supabase no configurada (SUPABASE_SERVICE_ROLE_KEY o SUPABASE_SECRET_KEY). Agrégala en Vercel para gestionar participantes.",
       },
       { status: 503 }
     );
@@ -101,7 +101,7 @@ export async function DELETE(request: Request) {
 
   if (!supabaseAdminDisponible()) {
     return NextResponse.json(
-      { error: "SUPABASE_SERVICE_ROLE_KEY no configurada." },
+      { error: "Clave de servidor Supabase no configurada (SUPABASE_SERVICE_ROLE_KEY o SUPABASE_SECRET_KEY)." },
       { status: 503 }
     );
   }

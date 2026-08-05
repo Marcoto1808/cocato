@@ -70,12 +70,24 @@ export type WhatsAppConfig = {
 export type ClienteResuelto = {
   id: string;
   nombre_negocio: string;
+  propietario: string | null;
   whatsapp: string | null;
   telefono: string | null;
   activo: boolean;
   tipo_cliente_id: string;
   lista_precio_id: string | null;
   limite_credito: number;
+};
+
+export type ConversationEngineLogEntry = {
+  conversationId: string;
+  inboundMessageId?: string;
+  mensajeRecibido: string;
+  estadoAnterior: string | null;
+  estadoNuevo: string | null;
+  respuestaEnviada: string;
+  clienteId?: string | null;
+  motivoAccesoDenegado?: string | null;
 };
 
 export type MensajeHistorial = {

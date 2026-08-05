@@ -11,7 +11,7 @@ export async function resolverClientePorTelefono(
   const { data: clientes, error } = await db
     .from("clientes")
     .select(
-      "id, nombre_negocio, whatsapp, telefono, activo, tipo_cliente_id, lista_precio_id, limite_credito"
+      "id, nombre_negocio, propietario, whatsapp, telefono, activo, tipo_cliente_id, lista_precio_id, limite_credito"
     )
     .eq("activo", true);
 

@@ -10,7 +10,7 @@ export async function obtenerOCrearConversacion(
 
   const { data: existente, error: errorBusqueda } = await db
     .from("whatsapp_conversations")
-    .select("id, cliente_id, wa_phone")
+    .select("id, cliente_id, wa_phone, estado_comercial")
     .eq("wa_phone", phone)
     .maybeSingle();
 
@@ -35,9 +35,10 @@ export async function obtenerOCrearConversacion(
       wa_phone: phone,
       cliente_id: clienteId,
       estado: "activa",
+      estado_comercial: "NUEVA",
       ultimo_mensaje_en: new Date().toISOString(),
     })
-    .select("id, cliente_id, wa_phone")
+    .select("id, cliente_id, wa_phone, estado_comercial")
     .single();
 
   if (error || !data) {
@@ -54,6 +55,21 @@ export async function actualizarUltimoMensajeConversacion(
   const { error } = await db
     .from("whatsapp_conversations")
     .update({ ultimo_mensaje_en: new Date().toISOString() })
+    .eq("id", conversationId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+export async function actualizarEstadoComercialConversacion(
+  db: SupabaseClient,
+  conversationId: string,
+  estadoComercial: string
+) {
+  const { error } = await db
+    .from("whatsapp_conversations")
+    .update({ estado_comercial: estadoComercial })
     .eq("id", conversationId);
 
   if (error) {

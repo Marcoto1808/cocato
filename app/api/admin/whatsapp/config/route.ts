@@ -70,7 +70,7 @@ export async function GET() {
       conexion: {
         ok: false,
         detalle:
-          "SUPABASE_SERVICE_ROLE_KEY no configurada en Vercel (solo afecta este panel; el webhook corre en Supabase).",
+          "Clave de servidor Supabase no configurada (SUPABASE_SERVICE_ROLE_KEY o SUPABASE_SECRET_KEY). Solo afecta este panel; el webhook corre en Supabase.",
       },
       webhookUrl: webhookSupabase,
       webhookHandler: handlerWebhookWhatsApp(),
@@ -133,7 +133,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json(
       {
         error:
-          "SUPABASE_SERVICE_ROLE_KEY no configurada. Agrégala en Vercel para guardar desde este panel.",
+          "Clave de servidor Supabase no configurada (SUPABASE_SERVICE_ROLE_KEY o SUPABASE_SECRET_KEY). Agrégala en Vercel para guardar desde este panel.",
       },
       { status: 503 }
     );

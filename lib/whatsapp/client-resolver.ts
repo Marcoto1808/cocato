@@ -7,6 +7,7 @@ import {
 export type ClienteResuelto = {
   id: string;
   nombre_negocio: string;
+  propietario: string | null;
   tipo_cliente_id: string;
   lista_precio_id: string | null;
   limite_credito: number;
@@ -25,7 +26,7 @@ export async function resolverClientePorTelefono(
   const { data, error } = await db
     .from("clientes")
     .select(
-      "id, nombre_negocio, tipo_cliente_id, lista_precio_id, limite_credito, telefono, whatsapp, activo"
+      "id, nombre_negocio, propietario, tipo_cliente_id, lista_precio_id, limite_credito, telefono, whatsapp, activo"
     )
     .eq("activo", true);
 

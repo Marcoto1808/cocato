@@ -3,6 +3,8 @@ import {
   verificarConexionYCloud,
   whatsappProvider,
 } from "@/lib/whatsapp/ycloud-webhook";
+import { resolveMessagingChannel } from "@/lib/messaging/resolve-messaging-channel";
+import { obtenerMessagingProviderRegistrado } from "@/lib/messaging/registry";
 
 const API_VERSION = process.env.WHATSAPP_API_VERSION?.trim() || "v21.0";
 
@@ -87,6 +89,18 @@ export async function enviarMensajeTextoWhatsApp(input: {
   body: string;
   phoneNumberId?: string | null;
 }): Promise<EnviarMensajeResultado> {
+  if (resolveMessagingChannel() === "whatsapp-web") {
+    const proveedor = obtenerMessagingProviderRegistrado();
+    if (!proveedor) {
+      return {
+        ok: false,
+        error:
+          "WhatsApp Web no está activo. Ejecuta npm run whatsapp-web en otra terminal.",
+      };
+    }
+    return proveedor.sendTextMessage(input);
+  }
+
   if (whatsappProvider() === "ycloud") {
     return enviarMensajeTextoYCloud({
       to: input.to,
@@ -101,6 +115,17 @@ export async function enviarMensajeTextoWhatsApp(input: {
 export async function verificarConexionWhatsApp(
   phoneNumberId?: string | null
 ): Promise<{ ok: boolean; detalle: string }> {
+  if (resolveMessagingChannel() === "whatsapp-web") {
+    const proveedor = obtenerMessagingProviderRegistrado();
+    if (!proveedor?.verifyConnection) {
+      return {
+        ok: false,
+        detalle: "Ejecuta npm run whatsapp-web para conectar WhatsApp Web.",
+      };
+    }
+    return proveedor.verifyConnection(phoneNumberId);
+  }
+
   if (whatsappProvider() === "ycloud") {
     return verificarConexionYCloud(phoneNumberId);
   }

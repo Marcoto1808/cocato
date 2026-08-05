@@ -4,29 +4,22 @@ import {
   obtenerOCrearConversacion,
 } from "../repositories/conversation.repository.ts";
 import {
-  clienteParticipaWhatsApp,
-  resolverClientePorTelefono,
-} from "../repositories/client.repository.ts";
+  crearAutorizadorWhatsApp,
+  clienteIdDesdeAutorizacion,
+} from "../conversation/whatsapp-autorizacion.ts";
 import {
-  cargarHistorialConversacion,
   guardarMensajeEntrante,
   guardarMensajeSaliente,
   marcarMensajeConError,
   mensajeYaExiste,
 } from "../repositories/message.repository.ts";
 import { obtenerWhatsAppConfig } from "../repositories/config.repository.ts";
-import { procesarMensajeConPedido } from "./pedido.service.ts";
+import { procesarConversationEngine } from "./conversation-engine.service.ts";
 import type {
   ProcesarMensajeResultado,
   WhatsAppInboundMessage,
 } from "../types.ts";
 import { enviarMensajeTexto } from "../whatsapp/messenger.ts";
-
-const MENSAJE_NO_REGISTRADO =
-  "Hola. Tu número no está registrado en nuestro sistema. Comunícate con la empresa para darte de alta y poder realizar pedidos por WhatsApp.";
-
-const MENSAJE_NO_PARTICIPANTE =
-  "Hola. Tu número está registrado pero aún no está habilitado para pedidos por WhatsApp. Comunícate con la empresa para activar este servicio.";
 
 async function responderYGuardar(input: {
   db: SupabaseClient;
@@ -35,13 +28,35 @@ async function responderYGuardar(input: {
   conversationId: string;
   phoneNumberId: string | null;
   inboundMessageId: string;
-  pedidoId?: string | null;
 }): Promise<ProcesarMensajeResultado> {
+  console.log(
+    JSON.stringify({
+      event: "whatsapp_responder_inicio",
+      to: input.to,
+      conversation_id: input.conversationId,
+      inbound_message_id: input.inboundMessageId,
+      phone_number_id: input.phoneNumberId,
+      respuesta_length: input.body.length,
+      respuesta_preview: input.body.slice(0, 80),
+    })
+  );
+
   const envio = await enviarMensajeTexto({
     to: input.to,
     body: input.body,
     phoneNumberId: input.phoneNumberId,
   });
+
+  console.log(
+    JSON.stringify({
+      event: "whatsapp_responder_resultado",
+      to: input.to,
+      inbound_message_id: input.inboundMessageId,
+      ok: envio.ok,
+      wa_message_id: envio.ok ? envio.waMessageId ?? null : null,
+      error: envio.ok ? null : envio.error,
+    })
+  );
 
   if (!envio.ok) {
     await marcarMensajeConError(input.db, input.inboundMessageId, envio.error);
@@ -57,17 +72,7 @@ async function responderYGuardar(input: {
     waMessageId: envio.waMessageId,
     contenido: input.body,
     inboundMessageId: input.inboundMessageId,
-    pedidoId: input.pedidoId,
   });
-
-  if (input.pedidoId) {
-    return {
-      estado: "pedido_creado",
-      messageId: input.inboundMessageId,
-      respuesta: input.body,
-      pedidoId: input.pedidoId,
-    };
-  }
 
   return {
     estado: "respondido",
@@ -87,11 +92,12 @@ export class ChatbotService {
       return { estado: "duplicado" };
     }
 
-    const cliente = await resolverClientePorTelefono(this.db, mensaje.from);
+    const autorizador = crearAutorizadorWhatsApp(this.db);
+    const acceso = await autorizador.autorizar(mensaje.from);
     const conversacion = await obtenerOCrearConversacion(
       this.db,
       mensaje.from,
-      cliente?.id ?? null
+      clienteIdDesdeAutorizacion(acceso)
     );
 
     const registro = await guardarMensajeEntrante(this.db, {
@@ -110,53 +116,23 @@ export class ChatbotService {
     const phoneNumberId =
       phoneNumberIdConfig ?? mensaje.phoneNumberId ?? null;
 
-    if (!cliente) {
-      return responderYGuardar({
-        db: this.db,
-        to: mensaje.from,
-        body: MENSAJE_NO_REGISTRADO,
-        conversationId: conversacion.id,
-        phoneNumberId,
-        inboundMessageId: registro.id,
-      });
-    }
-
-    const participa = await clienteParticipaWhatsApp(this.db, cliente.id);
-
-    if (!participa) {
-      return responderYGuardar({
-        db: this.db,
-        to: mensaje.from,
-        body: MENSAJE_NO_PARTICIPANTE,
-        conversationId: conversacion.id,
-        phoneNumberId,
-        inboundMessageId: registro.id,
-      });
-    }
-
     try {
-      const historial = await cargarHistorialConversacion(
-        this.db,
-        conversacion.id
-      );
-      const historialSinUltimo = historial.slice(0, -1);
-
-      const resultado = await procesarMensajeConPedido({
+      const engine = await procesarConversationEngine({
         db: this.db,
-        cliente,
-        mensajeOriginal: mensaje.texto,
-        historial: historialSinUltimo,
+        conversationId: conversacion.id,
+        inboundMessageId: registro.id,
+        mensajeRecibido: mensaje.texto,
+        estadoComercialActual: conversacion.estado_comercial ?? null,
+        acceso,
       });
 
       return await responderYGuardar({
         db: this.db,
         to: mensaje.from,
-        body: resultado.respuesta,
+        body: engine.respuesta,
         conversationId: conversacion.id,
         phoneNumberId,
         inboundMessageId: registro.id,
-        pedidoId:
-          resultado.tipo === "pedido_creado" ? resultado.pedidoId : null,
       });
     } catch (error) {
       const detalle =
