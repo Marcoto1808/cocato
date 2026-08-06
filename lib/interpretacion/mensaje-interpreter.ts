@@ -2,6 +2,7 @@ export type InterpretacionMensaje =
   | {
       tipo: "pedido";
       lineas: LineaInterpretada[];
+      observaciones?: string[];
     }
   | {
       tipo: "no_interpretado";
@@ -17,6 +18,7 @@ export type LineaInterpretada = {
   cantidad: number;
   unidad: "kg" | "pieza";
   textoOriginal: string;
+  cantidadTexto?: string;
 };
 
 export type ProductoCatalogo = {

@@ -122,6 +122,7 @@ export class ChatbotService {
         conversationId: conversacion.id,
         inboundMessageId: registro.id,
         mensajeRecibido: mensaje.texto,
+        waTelefono: mensaje.from,
         estadoComercialActual: conversacion.estado_comercial ?? null,
         acceso,
       });

@@ -14,7 +14,10 @@ type WhatsAppWebClient = {
   sendMessage(
     chatId: string,
     content: string
-  ): Promise<{ id: { id: string; _serialized?: string } }>;
+  ): Promise<{ id: { id: string; _serialized?: string } } | null | undefined>;
+  getContactLidAndPhone?(
+    userIds: string[]
+  ): Promise<Array<{ lid?: string; pn?: string }>>;
   on(event: string, listener: (...args: unknown[]) => void): void;
   once(event: string, listener: (...args: unknown[]) => void): void;
   off(event: string, listener: (...args: unknown[]) => void): void;
@@ -203,10 +206,28 @@ export class WhatsAppWebProvider implements MessagingProvider {
     }
 
     try {
-      const chatId = telefonoAJid(input.to);
+      const chatId = this.jidDestinoSalida(input.to);
       const sent = await this.client.sendMessage(chatId, input.body);
+
+      if (!sent) {
+        return {
+          ok: false,
+          error:
+            "WhatsApp Web no confirmó el envío (sendMessage devolvió undefined).",
+        };
+      }
+
+      const messageId = sent.id;
+      if (!messageId) {
+        return {
+          ok: false,
+          error:
+            "WhatsApp Web no confirmó el envío (respuesta sin identificador de mensaje).",
+        };
+      }
+
       const waMessageId =
-        sent.id._serialized ?? sent.id.id ?? `wweb-${Date.now()}`;
+        messageId._serialized ?? messageId.id ?? `wweb-${Date.now()}`;
 
       this.logEvento("whatsapp_web_outbound_ok", {
         to: jidATelefono(chatId),
@@ -660,6 +681,37 @@ export class WhatsAppWebProvider implements MessagingProvider {
     this.rejectReady = null;
   }
 
+  private jidDestinoSalida(destino: string): string {
+    if (destino.includes("@")) return destino;
+    return telefonoAJid(destino);
+  }
+
+  /** Resuelve teléfono E.164 para BD y conserva el JID original para responder. */
+  private async resolverIdentidadRemitente(
+    msgFrom: string
+  ): Promise<{ telefono: string; replyTo: string }> {
+    const replyTo = msgFrom;
+
+    if (msgFrom.endsWith("@lid") && this.client?.getContactLidAndPhone) {
+      try {
+        const [resultado] = await this.client.getContactLidAndPhone([msgFrom]);
+        if (resultado?.pn) {
+          const telefono = jidATelefono(resultado.pn);
+          if (telefono) {
+            return { telefono, replyTo };
+          }
+        }
+      } catch (error) {
+        this.logEvento("whatsapp_web_lid_resolve_error", {
+          from: msgFrom,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return { telefono: jidATelefono(msgFrom), replyTo };
+  }
+
   private logEvento(
     event: string,
     datos: Record<string, unknown> = {}
@@ -714,8 +766,13 @@ export class WhatsAppWebProvider implements MessagingProvider {
       return;
     }
 
+    const { telefono, replyTo } = await this.resolverIdentidadRemitente(
+      msg.from
+    );
+
     const inbound: InboundWhatsAppMessage = {
-      from: jidATelefono(msg.from),
+      from: telefono,
+      replyTo,
       waMessageId,
       texto,
       timestamp: msg.timestamp
@@ -726,6 +783,7 @@ export class WhatsAppWebProvider implements MessagingProvider {
 
     this.logEvento("whatsapp_web_inbound", {
       from: inbound.from,
+      reply_to: inbound.replyTo ?? inbound.from,
       wa_message_id: inbound.waMessageId,
       texto_preview: inbound.texto.slice(0, 80),
     });

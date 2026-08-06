@@ -211,11 +211,11 @@ export async function procesarMensajeConPedido(input: {
       nombreCliente: input.cliente.nombre_negocio,
     });
 
-    if (!fallback) {
+    if (!fallback.ok) {
       throw error;
     }
 
-    analisis = fallback;
+    analisis = fallback.analisis;
   }
 
   if (!analisis.es_pedido || analisis.lineas.length === 0) {

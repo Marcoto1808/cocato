@@ -158,6 +158,7 @@ INSERT INTO public.productos (
 ('Molida de cerdo especial', 'Cerdo', 'Corte', 'kg', 0, true, 333),
 ('Retazo', 'Cerdo', 'Corte', 'kg', 0, true, 334),
 ('Capote', 'Cerdo', 'Corte', 'pieza', 0, true, 335),
+('Capote Doble', 'Cerdo', 'Corte', 'pieza', 0, true, 336),
 
 -- =========================
 -- CERDO · EMBUTIDOS
@@ -287,6 +288,7 @@ FROM (
     ('Manitas', 'Cerdo', 'manitas'),
     ('Maletas', 'Cerdo', 'maletas'),
     ('Retazo', 'Cerdo', 'retazo'),
-    ('Capote', 'Cerdo', 'capote')
+    ('Capote', 'Cerdo', 'capote'),
+    ('Capote Doble', 'Cerdo', 'capote doble')
 ) AS v(nombre, categoria, codigo)
 WHERE p.nombre = v.nombre AND p.categoria = v.categoria;

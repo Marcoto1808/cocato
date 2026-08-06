@@ -1,7 +1,10 @@
 export type MessagingProviderId = "ycloud" | "whatsapp-web" | "meta";
 
 export type InboundWhatsAppMessage = {
+  /** Teléfono normalizado para autorización y BD (E.164 sin '+'). */
   from: string;
+  /** JID completo para responder (@lid o @c.us). */
+  replyTo?: string;
   waMessageId: string;
   texto: string;
   timestamp?: string;

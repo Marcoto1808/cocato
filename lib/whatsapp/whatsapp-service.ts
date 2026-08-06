@@ -60,6 +60,7 @@ export class WhatsAppService {
 
   async procesarMensajeEntrante(input: {
     from: string;
+    replyTo?: string;
     waMessageId: string;
     texto: string;
     phoneNumberId: string | null;
@@ -90,12 +91,13 @@ export class WhatsAppService {
       conversationId: conversacion.id,
       inboundMessageId: registro.id,
       mensajeRecibido: input.texto,
+      waTelefono: input.from,
       estadoComercialActual: conversacion.estado_comercial ?? null,
       acceso,
     });
 
     await this.responderTexto({
-      to: input.from,
+      to: input.replyTo ?? input.from,
       body: engine.respuesta,
       conversationId: conversacion.id,
       phoneNumberId,

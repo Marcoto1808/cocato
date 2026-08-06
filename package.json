@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "tsx --test --tsconfig tsconfig.json lib/whatsapp/carrito-eliminacion.test.ts",
     "whatsapp-web": "tsx --tsconfig tsconfig.json scripts/whatsapp-web-bridge.ts",
     "postinstall": "node scripts/ensure-puppeteer-browser.mjs"
   },
@@ -18,7 +19,7 @@
     "dotenv": "^16.4.7",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "whatsapp-web.js": "^1.26.0"
+    "whatsapp-web.js": "github:wwebjs/whatsapp-web.js#1780711a1c86dfeca7c5ba6a66f950eac93dde28"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
