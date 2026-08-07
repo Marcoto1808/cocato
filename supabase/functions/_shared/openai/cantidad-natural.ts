@@ -1,3 +1,5 @@
+import { normalizarLenguajeComercial } from "./lenguaje-comercial.ts";
+
 export type SegmentoParseado = {
   cantidad: number;
   cantidadTexto: string;
@@ -63,7 +65,7 @@ export function normalizarTextoPedido(valor: string): string {
 }
 
 export function limpiarPrefijoPedido(texto: string): string {
-  return texto
+  let t = texto
     .trim()
     .replace(/[.!?]+$/, "")
     .replace(
@@ -74,12 +76,9 @@ export function limpiarPrefijoPedido(texto: string): string {
       /^(?:me\s+puedes?\s+m(?:and(?:ar|as)|e\s+mand(?:ar|as))[,.\s]*)?/i,
       ""
     )
-    .replace(
-      /^(?:mandame|mándame|manda|dame|enviame|envíame|envia|envía|ponme|pon|necesito|quiero|qiero|me\s+gustar[ií]a|d[eé]jame|dejame)\s+/i,
-      ""
-    )
-    .replace(/^por\s+favor[,.\s]*/i, "")
     .trim();
+
+  return normalizarLenguajeComercial(t);
 }
 
 function numeroDesdeToken(token: string): number | null {

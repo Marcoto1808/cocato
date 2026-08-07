@@ -165,6 +165,25 @@ export function productosPorEspecificidad(
     );
 }
 
+function resolverProductoPorAlias(
+  buscadoNorm: string,
+  productos: ProductoCatalogo[]
+): ProductoCatalogo | null {
+  let encontrado: ProductoCatalogo | null = null;
+
+  for (const producto of productos) {
+    for (const alias of producto.aliases ?? []) {
+      if (normalizarNombreProducto(alias) !== buscadoNorm) continue;
+      if (encontrado && encontrado.id !== producto.id) {
+        return null;
+      }
+      encontrado = producto;
+    }
+  }
+
+  return encontrado;
+}
+
 export function resolverProductoEnCatalogo(
   nombreBuscado: string,
   productos: ProductoCatalogo[]
@@ -188,6 +207,11 @@ export function resolverProductoEnCatalogo(
         return { tipo: "ok", producto };
       }
     }
+  }
+
+  const porAlias = resolverProductoPorAlias(buscadoNorm, ordenados);
+  if (porAlias) {
+    return { tipo: "ok", producto: porAlias };
   }
 
   const candidatos: ProductoCatalogo[] = [];

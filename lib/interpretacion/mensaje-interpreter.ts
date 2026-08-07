@@ -27,6 +27,7 @@ export type ProductoCatalogo = {
   unidad: string;
   precio_kg: number;
   activo: boolean;
+  aliases?: string[];
 };
 
 export interface MensajeInterpreter {

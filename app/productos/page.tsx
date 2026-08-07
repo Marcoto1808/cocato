@@ -22,6 +22,7 @@ import {
   type TipoCalculoProducto,
 } from "@/lib/tipo-calculo-producto";
 import ProductosTable from "@/components/productos/ProductosTable";
+import ProductoAliasesEditor from "@/components/productos/ProductoAliasesEditor";
 import VolverAlDashboardLink from "@/components/navegacion/VolverAlDashboardLink";
 
 type FormularioProducto = {
@@ -516,20 +517,27 @@ export default function ProductosPage() {
               </div>
 
               {productoEditando ? (
-                <label className="flex items-center gap-2 text-sm text-zinc-700">
-                  <input
-                    type="checkbox"
-                    checked={formulario.activo}
-                    onChange={(event) =>
-                      setFormulario({
-                        ...formulario,
-                        activo: event.target.checked,
-                      })
-                    }
-                    className="rounded border-zinc-300"
+                <>
+                  <label className="flex items-center gap-2 text-sm text-zinc-700">
+                    <input
+                      type="checkbox"
+                      checked={formulario.activo}
+                      onChange={(event) =>
+                        setFormulario({
+                          ...formulario,
+                          activo: event.target.checked,
+                        })
+                      }
+                      className="rounded border-zinc-300"
+                    />
+                    Producto activo
+                  </label>
+
+                  <ProductoAliasesEditor
+                    productoId={productoEditando.id}
+                    productoNombre={productoEditando.nombre}
                   />
-                  Producto activo
-                </label>
+                </>
               ) : null}
 
               <div className="flex justify-end gap-3 pt-2">

@@ -30,6 +30,7 @@ import {
   construirMensajePostEliminarCarrito,
   parsearSolicitudEliminacion,
 } from "@/lib/whatsapp/carrito-eliminacion";
+import { cargarAliasesPorProductos } from "@/lib/producto-aliases";
 
 type ProductoMenu = {
   id: string;
@@ -465,10 +466,11 @@ export class PedidoService {
     if (!solicitud) return null;
 
     const productos = await this.listarProductos();
+    const catalogo = await this.catalogoDesdeProductos(productos);
     const resultado = aplicarEliminacionCarrito(
       carrito,
       solicitud,
-      this.catalogoDesdeProductos(productos)
+      catalogo
     );
 
     if (!resultado.ok) {
@@ -498,17 +500,25 @@ export class PedidoService {
     const interpretador = obtenerInterpretadorMensajes();
     return interpretador.interpretar({
       texto: mensaje,
-      productos: this.catalogoDesdeProductos(productos),
+      productos: await this.catalogoDesdeProductos(productos),
     });
   }
 
-  private catalogoDesdeProductos(productos: ProductoMenu[]): ProductoCatalogo[] {
+  private async catalogoDesdeProductos(
+    productos: ProductoMenu[]
+  ): Promise<ProductoCatalogo[]> {
+    const aliasesPorProducto = await cargarAliasesPorProductos(
+      this.db,
+      productos.map((producto) => producto.id)
+    );
+
     return productos.map((producto) => ({
       id: producto.id,
       nombre: producto.nombre,
       unidad: producto.unidad,
       precio_kg: 0,
       activo: true,
+      aliases: aliasesPorProducto.get(producto.id) ?? [],
     }));
   }
 

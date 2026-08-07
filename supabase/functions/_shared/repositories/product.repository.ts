@@ -8,6 +8,7 @@ export type ProductoCatalogo = {
   precio_kg: number;
   tipo_calculo: string | null;
   activo: boolean;
+  aliases?: string[];
 };
 
 export async function listarProductosCompletos(
@@ -20,7 +21,29 @@ export async function listarProductosCompletos(
     .order("nombre");
 
   if (error) throw new Error(error.message);
-  return (data ?? []) as ProductoCatalogo[];
+
+  const productos = (data ?? []) as ProductoCatalogo[];
+  if (productos.length === 0) return productos;
+
+  const ids = productos.map((producto) => producto.id);
+  const { data: aliasesData, error: aliasesError } = await db
+    .from("producto_aliases")
+    .select("producto_id, alias")
+    .in("producto_id", ids);
+
+  if (aliasesError) throw new Error(aliasesError.message);
+
+  const aliasesPorProducto = new Map<string, string[]>();
+  for (const fila of aliasesData ?? []) {
+    const actuales = aliasesPorProducto.get(fila.producto_id) ?? [];
+    actuales.push(fila.alias);
+    aliasesPorProducto.set(fila.producto_id, actuales);
+  }
+
+  return productos.map((producto) => ({
+    ...producto,
+    aliases: aliasesPorProducto.get(producto.id) ?? [],
+  }));
 }
 
 function normalizarTexto(valor: string): string {

@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test --tsconfig tsconfig.json lib/interpretacion/cantidad-natural.test.ts lib/whatsapp/carrito-eliminacion.test.ts",
+    "test": "tsx --test --tsconfig tsconfig.json lib/interpretacion/cantidad-natural.test.ts lib/interpretacion/lenguaje-comercial.test.ts lib/interpretacion/resolver-producto.test.ts lib/whatsapp/carrito-eliminacion.test.ts",
     "whatsapp-web": "tsx --tsconfig tsconfig.json scripts/whatsapp-web-bridge.ts",
     "postinstall": "node scripts/ensure-puppeteer-browser.mjs"
   },
