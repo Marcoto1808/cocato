@@ -82,8 +82,61 @@ export function limpiarPrefijoPedido(texto: string): string {
     .trim();
 }
 
+function numeroDesdeToken(token: string): number | null {
+  const t = token.toLowerCase();
+  if (/^\d+(?:[.,]\d+)?$/.test(t)) {
+    return Number(t.replace(",", "."));
+  }
+  return PALABRA_A_NUMERO[t] ?? null;
+}
+
+/** Convierte expresiones comunes de peso a cantidades numéricas antes del parseo. */
+export function normalizarExpresionesCantidad(texto: string): string {
+  let t = normalizarTextoPedido(texto);
+  if (!t) return t;
+
+  t = t.replace(
+    /\b(un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+cuartos?\s+de\s+(?:kilos?|kg)\b/gi,
+    (_, palabra: string) => {
+      const base = numeroDesdeToken(palabra) ?? 0;
+      return `${base * 0.25} kg`;
+    }
+  );
+
+  t = t.replace(/\bcuarto\s+de\s+(?:kilos?|kg)\b/gi, "0.25 kg");
+
+  t = t.replace(
+    /\b(\d+(?:[.,]\d+)?|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(?:kilos?|kg)\s+y\s+cuarto\b/gi,
+    (_, token: string) => {
+      const base = numeroDesdeToken(token) ?? 0;
+      return `${base + 0.25} kg`;
+    }
+  );
+
+  t = t.replace(/\b(?:kilos?|kg)\s+y\s+cuarto\b/gi, "1.25 kg");
+
+  t = t.replace(
+    /\b(\d+(?:[.,]\d+)?|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(?:kilos?|kg)\s+y\s+medio\b/gi,
+    (_, token: string) => {
+      const base = numeroDesdeToken(token) ?? 0;
+      return `${base + 0.5} kg`;
+    }
+  );
+
+  t = t.replace(/\b(?:kilos?|kg)\s+y\s+medio\b/gi, "1.5 kg");
+
+  t = t.replace(/\b(?:medio|media)\s+(?:kilos?|kg)\b/gi, "0.5 kg");
+
+  t = t.replace(/\bkilo\s+de\s+/gi, "1 kg de ");
+
+  t = t.replace(/(?<!\d\s*(?:[.,]\d+)?\s)\bkilo\b(?!\s+y\b)/gi, "1 kg");
+
+  return t.replace(/\s+/g, " ").trim();
+}
+
 export function segmentarMensajePedido(texto: string): string[] {
-  const protegido = texto.replace(
+  const normalizado = normalizarExpresionesCantidad(texto);
+  const protegido = normalizado.replace(
     /(\d+|uno|una|un|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|veinte|capote|capotes)\s+y\s+(medio|media)/gi,
     "$1 __Y_MEDIO__"
   );
@@ -292,7 +345,7 @@ function parsearPatronPalabras(
 }
 
 export function parsearSegmentoPedido(segmento: string): SegmentoParseado | null {
-  const limpio = limpiarPrefijoPedido(segmento);
+  const limpio = normalizarExpresionesCantidad(limpiarPrefijoPedido(segmento));
   if (!limpio) return null;
 
   const { resto, observaciones } = extraerObservaciones(limpio);
