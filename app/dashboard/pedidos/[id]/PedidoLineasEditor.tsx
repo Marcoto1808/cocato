@@ -61,6 +61,16 @@ export default function PedidoLineasEditor({
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [guardadoOk, setGuardadoOk] = useState(false);
+  const [detallesAbiertos, setDetallesAbiertos] = useState<Record<string, boolean>>(
+    {}
+  );
+
+  function alternarDetalles(id: string) {
+    setDetallesAbiertos((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  }
 
   const subtotal = useMemo(
     () =>
@@ -155,7 +165,7 @@ export default function PedidoLineasEditor({
         </div>
       ) : null}
 
-      <ul className="space-y-4">
+      <ul className="space-y-2">
         {lineas.map((linea) => {
           const preparada = lineaPreparada(linea.peso_real, linea.precio_aplicado);
           const checklist = formatearCantidadSolicitada(
@@ -164,120 +174,133 @@ export default function PedidoLineasEditor({
             linea.nombre,
             linea.cantidad_texto
           );
+          const detallesVisibles = detallesAbiertos[linea.id] === true;
 
           return (
             <li
               key={linea.id}
-              className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-4"
+              className="rounded-lg border border-zinc-200 bg-white"
             >
-              <div className="flex items-start gap-3">
-                <span
-                  className="mt-0.5 text-xl leading-none"
-                  aria-hidden="true"
+              <div className="flex items-center gap-3 px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  checked={preparada}
+                  readOnly
+                  tabIndex={-1}
+                  aria-label={`${checklist}${preparada ? ", completado" : ""}`}
+                  className="h-5 w-5 shrink-0 accent-zinc-900"
+                  onClick={(event) => event.stopPropagation()}
+                />
+                <button
+                  type="button"
+                  onClick={() => alternarDetalles(linea.id)}
+                  className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
                 >
-                  {preparada ? "✅" : "⬜"}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-base font-semibold text-zinc-900">
+                  <span className="truncate text-base font-medium text-zinc-900">
                     {checklist}
-                  </p>
+                  </span>
+                  <span className="shrink-0 text-xs font-medium text-zinc-500">
+                    {detallesVisibles ? "Ocultar detalles ˅" : "Detalles >"}
+                  </span>
+                </button>
+              </div>
 
-                  <div className="mt-4 space-y-3">
-                    <div>
-                      <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">
-                        Solicitado
-                      </p>
+              {detallesVisibles ? (
+                <div className="space-y-3 border-t border-zinc-100 px-3 pb-3 pt-3">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+                      Solicitado
+                    </p>
+                    <p className="mt-0.5 text-sm text-zinc-700">
+                      {mostrarCantidadSolicitada(
+                        linea.cantidad_solicitada,
+                        linea.cantidad_texto,
+                        linea.unidad
+                      )}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor={`peso-${linea.id}`}
+                      className="text-xs font-medium uppercase tracking-wide text-zinc-400"
+                    >
+                      Peso real (kg)
+                    </label>
+                    {soloLectura ? (
                       <p className="mt-0.5 text-sm text-zinc-700">
-                        {mostrarCantidadSolicitada(
-                          linea.cantidad_solicitada,
-                          linea.cantidad_texto,
-                          linea.unidad
-                        )}
+                        {linea.peso_real !== null ? `${linea.peso_real} kg` : "—"}
                       </p>
-                    </div>
+                    ) : (
+                      <input
+                        id={`peso-${linea.id}`}
+                        type="number"
+                        min="0"
+                        step="0.001"
+                        inputMode="decimal"
+                        placeholder="0.000"
+                        value={linea.peso_real ?? ""}
+                        disabled={guardando}
+                        onChange={(event) => {
+                          const valor = event.target.value;
+                          actualizarLineaLocal(linea.id, {
+                            peso_real:
+                              valor === "" ? null : Number(valor),
+                          });
+                        }}
+                        className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 disabled:opacity-60"
+                      />
+                    )}
+                  </div>
 
-                    <div>
-                      <label
-                        htmlFor={`peso-${linea.id}`}
-                        className="text-xs font-medium uppercase tracking-wide text-zinc-400"
-                      >
-                        Peso real (kg)
-                      </label>
-                      {soloLectura ? (
-                        <p className="mt-0.5 text-sm text-zinc-700">
-                          {linea.peso_real !== null ? `${linea.peso_real} kg` : "—"}
-                        </p>
-                      ) : (
-                        <input
-                          id={`peso-${linea.id}`}
-                          type="number"
-                          min="0"
-                          step="0.001"
-                          inputMode="decimal"
-                          placeholder="0.000"
-                          value={linea.peso_real ?? ""}
-                          disabled={guardando}
-                          onChange={(event) => {
-                            const valor = event.target.value;
-                            actualizarLineaLocal(linea.id, {
-                              peso_real:
-                                valor === "" ? null : Number(valor),
-                            });
-                          }}
-                          className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 disabled:opacity-60"
-                        />
-                      )}
-                    </div>
+                  <div>
+                    <label
+                      htmlFor={`precio-${linea.id}`}
+                      className="text-xs font-medium uppercase tracking-wide text-zinc-400"
+                    >
+                      Precio aplicado
+                    </label>
+                    {soloLectura ? (
+                      <p className="mt-0.5 text-sm text-zinc-700">
+                        {formatMoneda(linea.precio_aplicado)}
+                      </p>
+                    ) : (
+                      <input
+                        id={`precio-${linea.id}`}
+                        type="number"
+                        min="0"
+                        step="1"
+                        inputMode="numeric"
+                        value={linea.precio_aplicado}
+                        disabled={guardando}
+                        onChange={(event) =>
+                          actualizarLineaLocal(linea.id, {
+                            precio_aplicado: normalizarPrecioAplicado(
+                              Number(event.target.value)
+                            ),
+                          })
+                        }
+                        className={`mt-1 w-full rounded-lg border bg-white px-3 py-2.5 text-base text-zinc-900 disabled:opacity-60 ${
+                          linea.precio_modificado
+                            ? "border-amber-300 bg-amber-50"
+                            : "border-zinc-300"
+                        }`}
+                      />
+                    )}
+                  </div>
 
-                    <div>
-                      <label
-                        htmlFor={`precio-${linea.id}`}
-                        className="text-xs font-medium uppercase tracking-wide text-zinc-400"
-                      >
-                        Precio aplicado
-                      </label>
-                      {soloLectura ? (
-                        <p className="mt-0.5 text-sm text-zinc-700">
-                          {formatMoneda(linea.precio_aplicado)}
-                        </p>
-                      ) : (
-                        <input
-                          id={`precio-${linea.id}`}
-                          type="number"
-                          min="0"
-                          step="1"
-                          inputMode="numeric"
-                          value={linea.precio_aplicado}
-                          disabled={guardando}
-                          onChange={(event) =>
-                            actualizarLineaLocal(linea.id, {
-                              precio_aplicado: normalizarPrecioAplicado(
-                                Number(event.target.value)
-                              ),
-                            })
-                          }
-                          className={`mt-1 w-full rounded-lg border bg-white px-3 py-2.5 text-base text-zinc-900 disabled:opacity-60 ${
-                            linea.precio_modificado
-                              ? "border-amber-300 bg-amber-50"
-                              : "border-zinc-300"
-                          }`}
-                        />
-                      )}
-                    </div>
-
-                    <div className="flex items-center justify-between border-t border-zinc-200 pt-3">
-                      <span className="text-sm font-medium text-zinc-500">
-                        Total
-                      </span>
-                      <span className="text-lg font-bold tabular-nums text-zinc-900">
-                        {linea.subtotal > 0
-                          ? formatMoneda(linea.subtotal)
-                          : "$—"}
-                      </span>
-                    </div>
+                  <div className="flex items-center justify-between border-t border-zinc-200 pt-3">
+                    <span className="text-sm font-medium text-zinc-500">
+                      Total
+                    </span>
+                    <span className="text-lg font-bold tabular-nums text-zinc-900">
+                      {linea.subtotal > 0
+                        ? formatMoneda(linea.subtotal)
+                        : "$—"}
+                    </span>
                   </div>
                 </div>
-              </div>
+              ) : null}
             </li>
           );
         })}
