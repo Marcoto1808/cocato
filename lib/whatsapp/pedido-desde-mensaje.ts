@@ -29,6 +29,7 @@ type ProductoDb = {
   precio_kg: number;
   activo: boolean;
   tipo_calculo: string | null;
+  categoria: string | null;
 };
 
 export async function construirLineasPedidoDesdeInterpretacion(
@@ -38,7 +39,7 @@ export async function construirLineasPedidoDesdeInterpretacion(
 ): Promise<{ lineas: LineaPedidoInput[]; total: number } | { error: string }> {
   const { data: productosDb, error: productosError } = await db
     .from("productos")
-    .select("id, nombre, unidad, precio_kg, activo, tipo_calculo")
+    .select("id, nombre, unidad, precio_kg, activo, tipo_calculo, categoria")
     .eq("activo", true);
 
   if (productosError) {
@@ -73,10 +74,16 @@ export async function construirLineasPedidoDesdeInterpretacion(
 
     let producto = productosMap.get(interpretada.producto_id) ?? null;
     if (!producto && esLineaLibre(interpretada.producto_id)) {
-      producto = resolverProductoTextoLibrePedidoGuiado(
+      const resuelto = resolverProductoTextoLibrePedidoGuiado(
         interpretada.textoOriginal?.trim() || interpretada.producto_id,
-        productos
+        productos.map((item) => ({
+          id: item.id,
+          nombre: item.nombre,
+          categoria: item.categoria ?? "",
+          unidad: item.unidad,
+        }))
       );
+      producto = resuelto ? (productosMap.get(resuelto.id) ?? null) : null;
     }
     if (!producto) {
       return { error: `Producto no disponible: ${interpretada.producto_id}` };

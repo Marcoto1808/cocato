@@ -70,6 +70,9 @@ export class ConfirmacionService {
         carrito,
         mensajeRecibido
       );
+      if (!resuelto) {
+        return this.preparar(cliente, carrito);
+      }
       if (resuelto.delegarConfirmacion) {
         return this.preparar(cliente, resuelto.carrito);
       }

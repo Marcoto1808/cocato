@@ -536,17 +536,6 @@ export class WhatsAppWebProvider implements MessagingProvider {
       origen,
       razon: "Diagnóstico temporal: no ejecutar attachEventListeners()",
     });
-    return;
-
-    try {
-      await this.client.attachEventListeners();
-      this.logEvento("whatsapp_web_attach_listeners_ok", { origen });
-    } catch (error) {
-      this.logEvento("whatsapp_web_attach_listeners_error", {
-        origen,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
   }
 
   private registrarEventosMensajes(origen: string): void {
