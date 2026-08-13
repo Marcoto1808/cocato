@@ -272,8 +272,26 @@ async function procesarClienteAutorizado(
     });
   }
 
+  if (estadoAnterior === "ENTREGA_CONFIRMAR_DIRECCION") {
+    return entregaService.procesarConfirmarDireccion({
+      cliente,
+      carrito: carritoInicial,
+      mensajeRecibido,
+      menu,
+    });
+  }
+
   if (estadoAnterior === "ENTREGA_DIRECCION") {
     return entregaService.procesarDireccion({
+      cliente,
+      carrito: carritoInicial,
+      mensajeRecibido,
+      menu,
+    });
+  }
+
+  if (estadoAnterior === "ENTREGA_CONFIRMAR_NUEVA_DIRECCION") {
+    return entregaService.procesarConfirmarNuevaDireccion({
       cliente,
       carrito: carritoInicial,
       mensajeRecibido,

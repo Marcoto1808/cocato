@@ -5,12 +5,16 @@ import {
   obtenerDireccionCliente,
 } from "@/lib/whatsapp/conversation-repository";
 import {
+  construirConfirmacionNuevaDireccionPedido,
   construirEntregaDireccionGuardada,
   construirEntregaDomicilioExistente,
   construirEntregaRecoger,
+  construirSolicitudConfirmarDireccionRegistrada,
   construirSolicitudDireccionEntrega,
   construirSolicitudEntrega,
   construirSolicitudOtroPedido,
+  esDireccionClienteValida,
+  esOpcionConfirmarModificarDireccion,
   esOpcionEntrega,
   MENSAJE_CAMBIO_DIRECCION_REQUIERE_VALIDACION,
   pareceSolicitudCambioDireccion,
@@ -57,8 +61,8 @@ export class EntregaService {
     const opcion = esOpcionEntrega(mensajeRecibido);
 
     if (
-      direccionExistente &&
-      pareceSolicitudCambioDireccion(mensajeRecibido, direccionExistente)
+      esDireccionClienteValida(direccionExistente) &&
+      pareceSolicitudCambioDireccion(mensajeRecibido, direccionExistente!)
     ) {
       await registrarAlertaComercial(this.db, {
         clienteId: cliente.id,
@@ -76,7 +80,7 @@ export class EntregaService {
           [
             MENSAJE_CAMBIO_DIRECCION_REQUIERE_VALIDACION,
             "",
-            construirEntregaDomicilioExistente(direccionExistente),
+            construirEntregaDomicilioExistente(direccionExistente!),
           ].join("\n")
         );
       }
@@ -94,14 +98,17 @@ export class EntregaService {
     }
 
     if (opcion === "1") {
-      if (direccionExistente) {
-        await this.anotarEnPedido(
-          pedidoId,
-          `Envío a domicilio: ${direccionExistente}`
-        );
-        return this.finalizarEntrega(
-          construirEntregaDomicilioExistente(direccionExistente)
-        );
+      if (esDireccionClienteValida(direccionExistente)) {
+        return {
+          respuesta: construirSolicitudConfirmarDireccionRegistrada(
+            direccionExistente!
+          ),
+          estadoNuevo: "ENTREGA_CONFIRMAR_DIRECCION",
+          carrito: {
+            ...carrito,
+            entrega: { ...carrito.entrega, tipo: "domicilio", pedidoId },
+          },
+        };
       }
 
       return {
@@ -117,6 +124,63 @@ export class EntregaService {
     return {
       respuesta: `${construirSolicitudEntrega()}\n\nResponda 1 o 2.`,
       estadoNuevo: "ENTREGA_OPCION",
+      carrito,
+    };
+  }
+
+  async procesarConfirmarDireccion(input: {
+    cliente: ClienteResuelto;
+    carrito: CarritoConversacion;
+    mensajeRecibido: string;
+    menu: string;
+  }): Promise<ResultadoTurnoConversacion> {
+    const { cliente, carrito, mensajeRecibido, menu } = input;
+    const pedidoId = carrito.entrega?.pedidoId;
+    const direccionExistente = await obtenerDireccionCliente(this.db, cliente.id);
+    const opcion = esOpcionConfirmarModificarDireccion(mensajeRecibido);
+
+    if (!pedidoId || !esDireccionClienteValida(direccionExistente)) {
+      return {
+        respuesta: menu,
+        estadoNuevo: "MENU_PRINCIPAL",
+        carrito: carritoVacio(),
+      };
+    }
+
+    if (opcion === "1") {
+      await this.anotarEnPedido(
+        pedidoId,
+        `Envío a domicilio: ${direccionExistente}`
+      );
+      return this.finalizarEntrega(
+        construirEntregaDomicilioExistente(direccionExistente!)
+      );
+    }
+
+    if (opcion === "2") {
+      return {
+        respuesta: construirSolicitudDireccionEntrega(),
+        estadoNuevo: "ENTREGA_DIRECCION",
+        carrito: {
+          ...carrito,
+          entrega: {
+            ...carrito.entrega,
+            tipo: "domicilio",
+            pedidoId,
+            modificandoDireccion: true,
+            direccionPendiente: undefined,
+          },
+        },
+      };
+    }
+
+    return {
+      respuesta: [
+        "Opción no válida.",
+        "",
+        construirSolicitudConfirmarDireccionRegistrada(direccionExistente!),
+      ].join("\n"),
+      estadoNuevo: "ENTREGA_CONFIRMAR_DIRECCION",
       carrito,
     };
   }
@@ -147,6 +211,23 @@ export class EntregaService {
       };
     }
 
+    if (carrito.entrega?.modificandoDireccion) {
+      return {
+        respuesta: construirConfirmacionNuevaDireccionPedido(direccion),
+        estadoNuevo: "ENTREGA_CONFIRMAR_NUEVA_DIRECCION",
+        carrito: {
+          ...carrito,
+          entrega: {
+            ...carrito.entrega,
+            tipo: "domicilio",
+            pedidoId,
+            modificandoDireccion: true,
+            direccionPendiente: direccion,
+          },
+        },
+      };
+    }
+
     await actualizarDireccionCliente(this.db, cliente.id, direccion);
     await this.anotarEnPedido(
       pedidoId,
@@ -154,6 +235,64 @@ export class EntregaService {
     );
 
     return this.finalizarEntrega(construirEntregaDireccionGuardada(direccion));
+  }
+
+  async procesarConfirmarNuevaDireccion(input: {
+    cliente: ClienteResuelto;
+    carrito: CarritoConversacion;
+    mensajeRecibido: string;
+    menu: string;
+  }): Promise<ResultadoTurnoConversacion> {
+    const { cliente, carrito, mensajeRecibido, menu } = input;
+    const pedidoId = carrito.entrega?.pedidoId;
+    const direccion = carrito.entrega?.direccionPendiente?.trim();
+    const opcion = esOpcionConfirmarModificarDireccion(mensajeRecibido);
+
+    if (!pedidoId || !direccion) {
+      return {
+        respuesta: menu,
+        estadoNuevo: "MENU_PRINCIPAL",
+        carrito: carritoVacio(),
+      };
+    }
+
+    if (opcion === "1") {
+      await actualizarDireccionCliente(this.db, cliente.id, direccion);
+      await this.anotarEnPedido(
+        pedidoId,
+        `Envío a domicilio: ${direccion}`
+      );
+      return this.finalizarEntrega(
+        construirEntregaDomicilioExistente(direccion)
+      );
+    }
+
+    if (opcion === "2") {
+      return {
+        respuesta: construirSolicitudDireccionEntrega(),
+        estadoNuevo: "ENTREGA_DIRECCION",
+        carrito: {
+          ...carrito,
+          entrega: {
+            ...carrito.entrega,
+            tipo: "domicilio",
+            pedidoId,
+            modificandoDireccion: true,
+            direccionPendiente: undefined,
+          },
+        },
+      };
+    }
+
+    return {
+      respuesta: [
+        "Opción no válida.",
+        "",
+        construirConfirmacionNuevaDireccionPedido(direccion),
+      ].join("\n"),
+      estadoNuevo: "ENTREGA_CONFIRMAR_NUEVA_DIRECCION",
+      carrito,
+    };
   }
 
   private async anotarEnPedido(pedidoId: string, nota: string): Promise<void> {

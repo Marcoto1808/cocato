@@ -37,6 +37,10 @@ export type ContextoRegistro = {
 export type ContextoEntrega = {
   pedidoId?: string;
   tipo?: "domicilio" | "recoger";
+  /** Dirección capturada pendiente de confirmación. */
+  direccionPendiente?: string;
+  /** Cliente eligió modificar su dirección registrada. */
+  modificandoDireccion?: boolean;
 };
 
 export type CarritoConversacion = {

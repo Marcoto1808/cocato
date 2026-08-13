@@ -55,7 +55,7 @@ describe("confirmación de pedido", () => {
     const mensaje = construirSolicitudInformacionPendiente(resumen, pendiente);
 
     assert.match(mensaje, /⚠️ FALTA INFORMACIÓN/);
-    assert.match(mensaje, /¿La molida mixta es de RES o de CERDO\?/i);
+    assert.match(mensaje, /¿Es de:/i);
     assert.doesNotMatch(mensaje, /Confirmar pedido/);
 
     const confirmacion = construirSolicitudConfirmacion(resumen);

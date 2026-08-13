@@ -63,7 +63,25 @@ function categoriasEnOrden(opciones: OpcionDisambiguacion[]): string[] {
 const ESPECIE_ESPECIFICADA =
   /\b(de\s+)?(res|cerdo|puerco|cochino|chancho|carne de res)\b/;
 
-const CATEGORIAS_ESPECIE = ["Res", "Cerdo"] as const;
+const ORDEN_ESPECIE: readonly ["Res", "Cerdo"] = ["Res", "Cerdo"];
+
+/** Pregunta activa de res/cerdo (bistec, molida u otra ambigüedad solo Res vs Cerdo). */
+export function esSeleccionResCerdo(
+  opciones: OpcionDisambiguacion[],
+  productoBuscado?: string
+): boolean {
+  if (esDisambiguacionPorEspecie(opciones, productoBuscado)) return true;
+
+  if (!esAmbiguedadPorCategoria(opciones, productoBuscado)) return false;
+
+  const categorias = categoriasEnOrden(opciones);
+  return (
+    categorias.length >= 2 &&
+    categorias.every(
+      (categoria) => categoria === "Res" || categoria === "Cerdo"
+    )
+  );
+}
 
 function stemProducto(buscado: string): string {
   return normalizarPluralesComerciales(buscado.trim()).split(/\s+/)[0] ?? "";
@@ -244,15 +262,8 @@ export function construirMensajeDisambiguacion(
   opciones: OpcionDisambiguacion[],
   productoBuscado?: string
 ): string {
-  if (esDisambiguacionPorEspecie(opciones, productoBuscado)) {
-    const termino =
-      normalizarPluralesComerciales(productoBuscado?.trim() || "producto").toLowerCase();
-    return [
-      `¿La ${termino} es de RES o de CERDO?`,
-      "",
-      "1. 🐄 RES",
-      "2. 🐷 CERDO",
-    ].join("\n");
+  if (esSeleccionResCerdo(opciones, productoBuscado)) {
+    return ["¿Es de:", "", "1. Res", "2. Cerdo?"].join("\n");
   }
 
   if (esAmbiguedadPorCategoria(opciones, productoBuscado)) {
@@ -320,9 +331,9 @@ function resolverPorNombre(
 
 function resolverPorCategoria(
   mensaje: string,
-  pendiente: DisambiguacionPendiente
+  pendiente: DisambiguacionPendiente,
+  categorias: string[]
 ): OpcionDisambiguacion | null {
-  const categorias = categoriasEnOrden(pendiente.opciones);
   if (categorias.length < 2) return null;
 
   const seleccion = resolverSeleccionCategoria(mensaje, categorias);
@@ -333,6 +344,13 @@ function resolverPorCategoria(
     pendiente.opciones.find((opcion) => opcion.categoria === categoriaElegida) ??
     null
   );
+}
+
+function resolverPorEspecieResCerdo(
+  mensaje: string,
+  pendiente: DisambiguacionPendiente
+): OpcionDisambiguacion | null {
+  return resolverPorCategoria(mensaje, pendiente, [...ORDEN_ESPECIE]);
 }
 
 export function segmentoConEspecieResuelta(
@@ -360,13 +378,18 @@ export function resolverSeleccionDisambiguacion(
   mensaje: string,
   pendiente: DisambiguacionPendiente
 ): OpcionDisambiguacion | null {
-  if (esDisambiguacionPorEspecie(pendiente.opciones, pendiente.productoBuscado)) {
-    const porCategoria = resolverPorCategoria(mensaje, pendiente);
-    if (porCategoria) return porCategoria;
+  if (esSeleccionResCerdo(pendiente.opciones, pendiente.productoBuscado)) {
+    const porEspecie = resolverPorEspecieResCerdo(mensaje, pendiente);
+    if (porEspecie) return porEspecie;
+    return null;
   }
 
   if (esAmbiguedadPorCategoria(pendiente.opciones, pendiente.productoBuscado)) {
-    const porCategoria = resolverPorCategoria(mensaje, pendiente);
+    const porCategoria = resolverPorCategoria(
+      mensaje,
+      pendiente,
+      categoriasEnOrden(pendiente.opciones)
+    );
     if (porCategoria) return porCategoria;
   }
 
@@ -419,7 +442,7 @@ export function continuarDisambiguacionComercial(input: {
     input.unidadPorProductoId?.get(opcion.id) ??
     "pieza";
 
-  const textoOriginal = esDisambiguacionPorEspecie(
+  const textoOriginal = esSeleccionResCerdo(
     input.pendiente.opciones,
     input.pendiente.productoBuscado
   )

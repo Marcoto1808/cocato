@@ -552,9 +552,9 @@ describe("interpretarMensajeComercial - nombres estrictos", () => {
       ["costilla", PRODUCTO_PENDIENTE_DISAMBIGUACION_ID]
     );
     assert.ok(resultado.disambiguacion);
-    assert.match(resultado.aclaracion ?? "", /¿La bistec es de RES o de CERDO\?/i);
-    assert.match(resultado.aclaracion ?? "", /1\. 🐄 RES/);
-    assert.match(resultado.aclaracion ?? "", /2\. 🐷 CERDO/);
+    assert.match(resultado.aclaracion ?? "", /¿Es de:/i);
+    assert.match(resultado.aclaracion ?? "", /1\. Res/);
+    assert.match(resultado.aclaracion ?? "", /2\. Cerdo\?/);
     assert.equal(resultado.lineas.some((linea) => linea.producto_id.startsWith("b-")), false);
   });
 

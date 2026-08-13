@@ -100,9 +100,9 @@ describe("disambiguacion comercial", () => {
       pendienteBistec.opciones,
       pendienteBistec.productoBuscado
     );
-    assert.match(mensaje, /¿La bistec es de RES o de CERDO\?/i);
-    assert.match(mensaje, /1\. 🐄 RES/);
-    assert.match(mensaje, /2\. 🐷 CERDO/);
+    assert.match(mensaje, /¿Es de:/i);
+    assert.match(mensaje, /1\. Res/);
+    assert.match(mensaje, /2\. Cerdo\?/);
     assert.doesNotMatch(mensaje, /¿A cuál bistec/i);
   });
 
@@ -123,9 +123,9 @@ describe("disambiguacion comercial", () => {
       pendienteMolida.opciones,
       pendienteMolida.productoBuscado
     );
-    assert.match(mensaje, /¿La molida es de RES o de CERDO\?/i);
-    assert.match(mensaje, /1\. 🐄 RES/);
-    assert.match(mensaje, /2\. 🐷 CERDO/);
+    assert.match(mensaje, /¿Es de:/i);
+    assert.match(mensaje, /1\. Res/);
+    assert.match(mensaje, /2\. Cerdo\?/);
     assert.doesNotMatch(mensaje, /peso molida/i);
   });
 
@@ -134,8 +134,13 @@ describe("disambiguacion comercial", () => {
     assert.equal(opcion?.categoria, "Res");
   });
 
-  it('resuelve "Cerdo" como especie de bistec', () => {
-    const opcion = resolverSeleccionDisambiguacion("Cerdo", pendienteBistec);
+  it('resuelve "2" como Cerdo en disambiguación por especie', () => {
+    const opcion = resolverSeleccionDisambiguacion("2", pendienteBistec);
+    assert.equal(opcion?.categoria, "Cerdo");
+  });
+
+  it('resuelve "cerdo" sin importar mayúsculas', () => {
+    const opcion = resolverSeleccionDisambiguacion("CERDO", pendienteBistec);
     assert.equal(opcion?.id, "b-cerdo");
   });
 
@@ -170,7 +175,7 @@ describe("disambiguacion comercial", () => {
     assert.equal(resultado.linea.cantidad, 3);
     assert.ok(resultado.siguiente);
     assert.equal(resultado.siguiente?.segmento, "200 pesos de molida");
-    assert.match(resultado.aclaracion ?? "", /¿La molida es de RES o de CERDO\?/i);
+    assert.match(resultado.aclaracion ?? "", /¿Es de:/i);
   });
 
   it('resuelve "bistec de cerdo" sin disambiguación', () => {

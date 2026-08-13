@@ -5,11 +5,15 @@ import {
   obtenerDireccionCliente,
 } from "../repositories/conversation.repository.ts";
 import {
+  construirConfirmacionNuevaDireccionPedido,
   construirEntregaDireccionGuardada,
   construirEntregaDomicilioExistente,
   construirEntregaRecoger,
+  construirSolicitudConfirmarDireccionRegistrada,
   construirSolicitudDireccionEntrega,
   construirSolicitudEntrega,
+  esDireccionClienteValida,
+  esOpcionConfirmarModificarDireccion,
   esOpcionEntrega,
   MENSAJE_CAMBIO_DIRECCION_REQUIERE_VALIDACION,
   pareceSolicitudCambioDireccion,
@@ -20,6 +24,14 @@ import { registrarAlertaComercial } from "./cliente-registro.service.ts";
 
 export class EntregaService {
   constructor(private readonly db: SupabaseClient) {}
+
+  private finalizarEntrega(respuestaEntrega: string): ResultadoTurnoConversacion {
+    return {
+      respuesta: respuestaEntrega,
+      estadoNuevo: "MENU_PRINCIPAL",
+      carrito: carritoVacio(),
+    };
+  }
 
   async procesarOpcion(input: {
     cliente: ClienteResuelto;
@@ -42,8 +54,8 @@ export class EntregaService {
     const opcion = esOpcionEntrega(mensajeRecibido);
 
     if (
-      direccionExistente &&
-      pareceSolicitudCambioDireccion(mensajeRecibido, direccionExistente)
+      esDireccionClienteValida(direccionExistente) &&
+      pareceSolicitudCambioDireccion(mensajeRecibido, direccionExistente!)
     ) {
       await registrarAlertaComercial(this.db, {
         clienteId: cliente.id,
@@ -57,15 +69,13 @@ export class EntregaService {
           pedidoId,
           `Envío a domicilio (dirección registrada): ${direccionExistente}`
         );
-        return {
-          respuesta: [
+        return this.finalizarEntrega(
+          [
             MENSAJE_CAMBIO_DIRECCION_REQUIERE_VALIDACION,
             "",
-            construirEntregaDomicilioExistente(direccionExistente),
-          ].join("\n"),
-          estadoNuevo: "MENU_PRINCIPAL",
-          carrito: carritoVacio(),
-        };
+            construirEntregaDomicilioExistente(direccionExistente!),
+          ].join("\n")
+        );
       }
 
       return {
@@ -77,23 +87,20 @@ export class EntregaService {
 
     if (opcion === "2") {
       await this.anotarEnPedido(pedidoId, "Entrega: cliente pasa a recoger");
-      return {
-        respuesta: construirEntregaRecoger(),
-        estadoNuevo: "MENU_PRINCIPAL",
-        carrito: carritoVacio(),
-      };
+      return this.finalizarEntrega(construirEntregaRecoger());
     }
 
     if (opcion === "1") {
-      if (direccionExistente) {
-        await this.anotarEnPedido(
-          pedidoId,
-          `Envío a domicilio: ${direccionExistente}`
-        );
+      if (esDireccionClienteValida(direccionExistente)) {
         return {
-          respuesta: construirEntregaDomicilioExistente(direccionExistente),
-          estadoNuevo: "MENU_PRINCIPAL",
-          carrito: carritoVacio(),
+          respuesta: construirSolicitudConfirmarDireccionRegistrada(
+            direccionExistente!
+          ),
+          estadoNuevo: "ENTREGA_CONFIRMAR_DIRECCION",
+          carrito: {
+            ...carrito,
+            entrega: { ...carrito.entrega, tipo: "domicilio", pedidoId },
+          },
         };
       }
 
@@ -110,6 +117,63 @@ export class EntregaService {
     return {
       respuesta: `${construirSolicitudEntrega()}\n\nResponda 1 o 2.`,
       estadoNuevo: "ENTREGA_OPCION",
+      carrito,
+    };
+  }
+
+  async procesarConfirmarDireccion(input: {
+    cliente: ClienteResuelto;
+    carrito: CarritoConversacion;
+    mensajeRecibido: string;
+    menu: string;
+  }): Promise<ResultadoTurnoConversacion> {
+    const { cliente, carrito, mensajeRecibido, menu } = input;
+    const pedidoId = carrito.entrega?.pedidoId;
+    const direccionExistente = await obtenerDireccionCliente(this.db, cliente.id);
+    const opcion = esOpcionConfirmarModificarDireccion(mensajeRecibido);
+
+    if (!pedidoId || !esDireccionClienteValida(direccionExistente)) {
+      return {
+        respuesta: menu,
+        estadoNuevo: "MENU_PRINCIPAL",
+        carrito: carritoVacio(),
+      };
+    }
+
+    if (opcion === "1") {
+      await this.anotarEnPedido(
+        pedidoId,
+        `Envío a domicilio: ${direccionExistente}`
+      );
+      return this.finalizarEntrega(
+        construirEntregaDomicilioExistente(direccionExistente!)
+      );
+    }
+
+    if (opcion === "2") {
+      return {
+        respuesta: construirSolicitudDireccionEntrega(),
+        estadoNuevo: "ENTREGA_DIRECCION",
+        carrito: {
+          ...carrito,
+          entrega: {
+            ...carrito.entrega,
+            tipo: "domicilio",
+            pedidoId,
+            modificandoDireccion: true,
+            direccionPendiente: undefined,
+          },
+        },
+      };
+    }
+
+    return {
+      respuesta: [
+        "Opción no válida.",
+        "",
+        construirSolicitudConfirmarDireccionRegistrada(direccionExistente!),
+      ].join("\n"),
+      estadoNuevo: "ENTREGA_CONFIRMAR_DIRECCION",
       carrito,
     };
   }
@@ -140,16 +204,87 @@ export class EntregaService {
       };
     }
 
+    if (carrito.entrega?.modificandoDireccion) {
+      return {
+        respuesta: construirConfirmacionNuevaDireccionPedido(direccion),
+        estadoNuevo: "ENTREGA_CONFIRMAR_NUEVA_DIRECCION",
+        carrito: {
+          ...carrito,
+          entrega: {
+            ...carrito.entrega,
+            tipo: "domicilio",
+            pedidoId,
+            modificandoDireccion: true,
+            direccionPendiente: direccion,
+          },
+        },
+      };
+    }
+
     await actualizarDireccionCliente(this.db, cliente.id, direccion);
     await this.anotarEnPedido(
       pedidoId,
       `Envío a domicilio (dirección registrada): ${direccion}`
     );
 
+    return this.finalizarEntrega(construirEntregaDireccionGuardada(direccion));
+  }
+
+  async procesarConfirmarNuevaDireccion(input: {
+    cliente: ClienteResuelto;
+    carrito: CarritoConversacion;
+    mensajeRecibido: string;
+    menu: string;
+  }): Promise<ResultadoTurnoConversacion> {
+    const { cliente, carrito, mensajeRecibido, menu } = input;
+    const pedidoId = carrito.entrega?.pedidoId;
+    const direccion = carrito.entrega?.direccionPendiente?.trim();
+    const opcion = esOpcionConfirmarModificarDireccion(mensajeRecibido);
+
+    if (!pedidoId || !direccion) {
+      return {
+        respuesta: menu,
+        estadoNuevo: "MENU_PRINCIPAL",
+        carrito: carritoVacio(),
+      };
+    }
+
+    if (opcion === "1") {
+      await actualizarDireccionCliente(this.db, cliente.id, direccion);
+      await this.anotarEnPedido(
+        pedidoId,
+        `Envío a domicilio: ${direccion}`
+      );
+      return this.finalizarEntrega(
+        construirEntregaDomicilioExistente(direccion)
+      );
+    }
+
+    if (opcion === "2") {
+      return {
+        respuesta: construirSolicitudDireccionEntrega(),
+        estadoNuevo: "ENTREGA_DIRECCION",
+        carrito: {
+          ...carrito,
+          entrega: {
+            ...carrito.entrega,
+            tipo: "domicilio",
+            pedidoId,
+            modificandoDireccion: true,
+            direccionPendiente: undefined,
+          },
+        },
+      };
+    }
+
     return {
-      respuesta: construirEntregaDireccionGuardada(direccion),
-      estadoNuevo: "MENU_PRINCIPAL",
-      carrito: carritoVacio(),
+      respuesta: [
+        "Opción no válida.",
+        "",
+        construirConfirmacionNuevaDireccionPedido(direccion),
+      ].join("\n"),
+      estadoNuevo: "ENTREGA_CONFIRMAR_NUEVA_DIRECCION",
+      carrito,
     };
   }
 

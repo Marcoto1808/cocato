@@ -33,7 +33,9 @@ export type EstadoComercialConversacion =
   | "ESPERANDO_CONFIRMACION"
   | "RECUPERACION_PEDIDO"
   | "ENTREGA_OPCION"
+  | "ENTREGA_CONFIRMAR_DIRECCION"
   | "ENTREGA_DIRECCION"
+  | "ENTREGA_CONFIRMAR_NUEVA_DIRECCION"
   | "CONFIRMADO"
   | "CANCELADO";
 
@@ -49,7 +51,9 @@ export const ESTADOS_COMERCIALES: EstadoComercialConversacion[] = [
   "ESPERANDO_CONFIRMACION",
   "RECUPERACION_PEDIDO",
   "ENTREGA_OPCION",
+  "ENTREGA_CONFIRMAR_DIRECCION",
   "ENTREGA_DIRECCION",
+  "ENTREGA_CONFIRMAR_NUEVA_DIRECCION",
   "CONFIRMADO",
   "CANCELADO",
 ];
@@ -439,6 +443,86 @@ export function construirSolicitudEntrega(): string {
     "1️⃣ Envío a domicilio",
     "2️⃣ Pasaré a recogerlo",
   ].join("\n");
+}
+
+export function esDireccionClienteValida(
+  direccion: string | null | undefined
+): boolean {
+  if (!direccion?.trim()) return false;
+
+  const normalizado = normalizarEntrada(direccion);
+  if (normalizado.length < 10) return false;
+
+  const invalidas = [
+    "envio a domicilio",
+    "pasare a recogerlo",
+    "pasar a recoger",
+    "cliente pasa a recoger",
+  ];
+
+  return !invalidas.some(
+    (frase) => normalizado === frase || normalizado.startsWith(`${frase} `)
+  );
+}
+
+export function construirSolicitudConfirmarDireccionRegistrada(
+  direccion: string
+): string {
+  return [
+    "Perfecto.",
+    "",
+    "Entregaremos en su dirección registrada:",
+    "",
+    direccion,
+    "",
+    "¿La dirección es correcta?",
+    "",
+    "1️⃣ Sí, enviar a esta dirección",
+    "2️⃣ Modificar dirección de envío",
+  ].join("\n");
+}
+
+export function construirConfirmacionNuevaDireccionPedido(
+  direccion: string
+): string {
+  return [
+    "Perfecto.",
+    "",
+    "La dirección de envío para este pedido será:",
+    "",
+    direccion,
+    "",
+    "1️⃣ Sí, confirmar dirección",
+    "2️⃣ Modificar dirección de envío",
+  ].join("\n");
+}
+
+export function esOpcionConfirmarModificarDireccion(
+  texto: string
+): "1" | "2" | null {
+  const normalizado = normalizarEntrada(texto);
+  if (!normalizado) return null;
+
+  if (
+    normalizado === "1" ||
+    normalizado.startsWith("si") ||
+    normalizado.includes("confirmar") ||
+    normalizado.includes("correcta") ||
+    normalizado.includes("enviar a esta")
+  ) {
+    return "1";
+  }
+
+  if (
+    normalizado === "2" ||
+    normalizado.includes("modificar") ||
+    normalizado.includes("cambiar") ||
+    normalizado.includes("otra direccion")
+  ) {
+    return "2";
+  }
+
+  return null;
 }
 
 export function construirEntregaDomicilioExistente(direccion: string): string {

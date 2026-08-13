@@ -44,6 +44,8 @@ export type ContextoRegistro = {
 export type ContextoEntrega = {
   pedidoId?: string;
   tipo?: "domicilio" | "recoger";
+  direccionPendiente?: string;
+  modificandoDireccion?: boolean;
 };
 
 export type CarritoConversacion = {
