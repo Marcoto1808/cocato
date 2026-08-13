@@ -17,6 +17,10 @@ import PedidoLineasEditor from "./PedidoLineasEditor";
 import RegistrarClienteDesdePedidoLink from "@/components/pedidos/RegistrarClienteDesdePedidoLink";
 import { lineaPedidoDesdeDetalle } from "@/lib/pedido-lineas";
 import { formatFechaPedidoDetalle } from "@/lib/pedido-fecha";
+import {
+  etiquetaDireccionEntregaPedido,
+  resolverDireccionEntregaPedido,
+} from "@/lib/pedido-entrega";
 import { cargarPedidoDetalle } from "@/lib/pedidos/pedidos-lista";
 
 export const dynamic = "force-dynamic";
@@ -89,6 +93,7 @@ export default async function PedidoDetallePage({
   const pedidoRapido = esPedidoRapido(detalle);
   const pedidoEntregado = esPedidoEntregado(detalle.estado ?? "");
   const origen = resolverOrigenPedido(detalle);
+  const direccionEntrega = resolverDireccionEntregaPedido(detalle.observaciones);
 
   return (
     <PedidoEstadoProvider pedidoId={id} estadoInicial={detalle.estado}>
@@ -187,6 +192,26 @@ export default async function PedidoDetallePage({
             <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500">
               Orden de preparación
             </h2>
+
+            <div className="mb-4 rounded-lg bg-amber-50 px-4 py-3 ring-1 ring-amber-200">
+              <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                Cliente
+              </p>
+              <p className="mt-1 text-base font-semibold text-zinc-900">
+                {nombreNegocio}
+              </p>
+              <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-amber-800">
+                Dirección de entrega
+              </p>
+              <p className="mt-1 text-base font-medium text-zinc-900">
+                {etiquetaDireccionEntregaPedido(direccionEntrega)}
+              </p>
+            </div>
+
+            <div
+              className="mb-4 border-t border-dashed border-zinc-200"
+              aria-hidden
+            />
 
             <PedidoLineasEditor
               pedidoId={id}

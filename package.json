@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test --tsconfig tsconfig.json lib/interpretacion/cantidad-natural.test.ts lib/interpretacion/lenguaje-comercial.test.ts lib/interpretacion/resolver-producto.test.ts lib/interpretacion/resolver-categoria.test.ts lib/interpretacion/disambiguacion.test.ts lib/interpretacion/motor-comercial.test.ts lib/whatsapp/carrito-eliminacion.test.ts lib/whatsapp/carrito-correccion.test.ts lib/whatsapp/pedido-guiado-productos.test.ts lib/whatsapp/pedido-guiado-cantidad.test.ts lib/whatsapp/especie-preferida.test.ts lib/whatsapp/comandos-pedido.test.ts lib/whatsapp/confirmacion-turno.test.ts lib/whatsapp/resolver-opcion-conversacional.test.ts lib/whatsapp/cliente-registro.test.ts",
+    "test": "tsx --test --tsconfig tsconfig.json lib/interpretacion/cantidad-natural.test.ts lib/interpretacion/lenguaje-comercial.test.ts lib/interpretacion/resolver-producto.test.ts lib/interpretacion/resolver-categoria.test.ts lib/interpretacion/disambiguacion.test.ts lib/interpretacion/motor-comercial.test.ts lib/whatsapp/carrito-eliminacion.test.ts lib/whatsapp/carrito-correccion.test.ts lib/whatsapp/pedido-guiado-productos.test.ts lib/whatsapp/pedido-guiado-cantidad.test.ts lib/whatsapp/especie-preferida.test.ts lib/whatsapp/comandos-pedido.test.ts lib/whatsapp/confirmacion-turno.test.ts lib/whatsapp/resolver-opcion-conversacional.test.ts lib/whatsapp/cliente-registro.test.ts lib/pedido-entrega.test.ts",
     "whatsapp-web": "tsx --tsconfig tsconfig.json scripts/whatsapp-web-bridge.ts",
     "postinstall": "node scripts/ensure-puppeteer-browser.mjs"
   },
