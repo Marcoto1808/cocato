@@ -5,18 +5,23 @@ import {
   type CarritoConversacion,
 } from "../conversation/cart.ts";
 import {
+  construirInstruccionAgregarMas,
   construirResumenCarrito,
+  construirRespuestaConfirmacionInvalida,
   construirSolicitudConfirmacion,
   construirSolicitudEntrega,
-  esCancelacion,
-  esConfirmacion,
-  MENSAJE_PEDIDO_CANCELADO,
+  carritoTieneInformacionPendiente,
   MENSAJE_PEDIDO_CONFIRMADO,
 } from "../conversation/states.ts";
+import {
+  esOpcionConfirmacionPedido,
+  reiniciarPedidoConversacion,
+} from "../conversation/comandos-pedido.ts";
+import { esTextoLibreProductoPedido } from "../conversation/pedido-guiado-productos.ts";
 import type { ClienteResuelto } from "../types.ts";
 import type { ResultadoTurnoConversacion } from "./conversation-turn.types.ts";
 import { PedidoService } from "./pedido-conversacion.service.ts";
-import { crearPedidoDesdeMensajeWhatsApp } from "./pedido-desde-mensaje.service.ts";
+import { crearPedidoDesdeCarritoWhatsApp } from "./pedido-desde-mensaje.service.ts";
 
 export class ConfirmacionService {
   constructor(
@@ -37,6 +42,10 @@ export class ConfirmacionService {
       };
     }
 
+    if (carritoTieneInformacionPendiente(carrito)) {
+      return this.pedidoService.responderInformacionPendiente(carrito);
+    }
+
     const total = await this.pedidoService.calcularTotal(cliente, carrito.lineas);
     const resumen = construirResumenCarrito(carrito.lineas, carrito.observaciones);
 
@@ -55,47 +64,80 @@ export class ConfirmacionService {
   }): Promise<ResultadoTurnoConversacion> {
     const { mensajeRecibido, cliente, carrito, menu } = input;
 
-    if (esConfirmacion(mensajeRecibido)) {
-      return this.confirmar(cliente, carrito);
-    }
-
-    const eliminacion = await this.pedidoService.intentarEliminarDelCarrito(
-      carrito,
-      mensajeRecibido
-    );
-    if (eliminacion) {
-      if (eliminacion.carrito.lineas.length === 0) {
-        return {
-          ...eliminacion,
-          estadoNuevo: "PEDIDO_EN_CONSTRUCCION",
-        };
+    if (carrito.contextoDisambiguacion) {
+      const resuelto = await this.pedidoService.procesarDisambiguacionPendiente(
+        cliente,
+        carrito,
+        mensajeRecibido
+      );
+      if (resuelto.delegarConfirmacion) {
+        return this.preparar(cliente, resuelto.carrito);
       }
-      return this.preparar(cliente, eliminacion.carrito);
+      return resuelto;
     }
 
-    if (esCancelacion(mensajeRecibido)) {
+    if (esTextoLibreProductoPedido(mensajeRecibido)) {
+      const agregado = await this.pedidoService.agregarTextoAlCarrito(
+        cliente,
+        carrito,
+        mensajeRecibido
+      );
+
+      if (agregado.ok) {
+        return this.preparar(cliente, agregado.carrito);
+      }
+
+      const resumen = construirResumenCarrito(
+        carrito.lineas,
+        carrito.observaciones
+      );
+
       return {
-        respuesta: `${MENSAJE_PEDIDO_CANCELADO}\n\n${menu}`,
-        estadoNuevo: "MENU_PRINCIPAL",
-        carrito: carritoVacio(),
+        respuesta: `${agregado.error}\n\n${construirSolicitudConfirmacion(resumen)}`,
+        estadoNuevo: "ESPERANDO_CONFIRMACION",
+        carrito,
       };
     }
 
-    const agregado = await this.pedidoService.agregarTextoAlCarrito(
-      cliente,
-      carrito,
-      mensajeRecibido
-    );
+    const opcion = esOpcionConfirmacionPedido(mensajeRecibido);
 
-    if (agregado.ok) {
-      return this.preparar(cliente, agregado.carrito);
+    if (opcion === "confirmar") {
+      if (carritoTieneInformacionPendiente(carrito)) {
+        return this.pedidoService.responderInformacionPendiente(carrito);
+      }
+      return this.confirmar(cliente, carrito);
+    }
+
+    if (opcion === "reiniciar") {
+      return reiniciarPedidoConversacion(menu);
+    }
+
+    if (opcion === "seguir") {
+      return {
+        respuesta: construirInstruccionAgregarMas(),
+        estadoNuevo: "PEDIDO_EN_CONSTRUCCION",
+        carrito: {
+          ...carrito,
+          totalEstimado: undefined,
+          modo: "libre",
+          contextoGuiado: null,
+          contextoDisambiguacion: null,
+        },
+      };
     }
 
     return {
-      respuesta: `${agregado.error}\n\n¿Es correcto? Responda *SÍ* para confirmar, *NO* para cancelar, o escriba una modificación al pedido.`,
+      respuesta: construirRespuestaConfirmacionInvalida(),
       estadoNuevo: "ESPERANDO_CONFIRMACION",
       carrito,
     };
+  }
+
+  async confirmarPedido(
+    cliente: ClienteResuelto,
+    carrito: CarritoConversacion
+  ): Promise<ResultadoTurnoConversacion> {
+    return this.confirmar(cliente, carrito);
   }
 
   private async confirmar(
@@ -105,8 +147,9 @@ export class ConfirmacionService {
     const mensajeOriginal =
       carrito.mensajeLibre?.trim() || mensajeOriginalDesdeCarrito(carrito.lineas);
 
-    const resultado = await crearPedidoDesdeMensajeWhatsApp(this.db, {
+    const resultado = await crearPedidoDesdeCarritoWhatsApp(this.db, {
       cliente,
+      lineas: carrito.lineas,
       mensajeOriginal,
       listaPrecioId: cliente.lista_precio_id,
     });
