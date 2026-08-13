@@ -10,6 +10,7 @@ import {
   construirEntregaRecoger,
   construirSolicitudDireccionEntrega,
   construirSolicitudEntrega,
+  construirSolicitudOtroPedido,
   esOpcionEntrega,
   MENSAJE_CAMBIO_DIRECCION_REQUIERE_VALIDACION,
   pareceSolicitudCambioDireccion,
@@ -20,6 +21,20 @@ import type { ResultadoTurnoConversacion } from "@/lib/whatsapp/services/convers
 
 export class EntregaService {
   constructor(private readonly db: SupabaseClient) {}
+
+  private finalizarEntrega(respuestaEntrega: string): ResultadoTurnoConversacion {
+    return {
+      respuesta: [
+        respuestaEntrega,
+        "",
+        "Gracias por su pedido.",
+        "",
+        construirSolicitudOtroPedido(),
+      ].join("\n"),
+      estadoNuevo: "CONFIRMADO",
+      carrito: carritoVacio(),
+    };
+  }
 
   async procesarOpcion(input: {
     cliente: ClienteResuelto;
@@ -57,15 +72,13 @@ export class EntregaService {
           pedidoId,
           `Envío a domicilio (dirección registrada): ${direccionExistente}`
         );
-        return {
-          respuesta: [
+        return this.finalizarEntrega(
+          [
             MENSAJE_CAMBIO_DIRECCION_REQUIERE_VALIDACION,
             "",
             construirEntregaDomicilioExistente(direccionExistente),
-          ].join("\n"),
-          estadoNuevo: "MENU_PRINCIPAL",
-          carrito: carritoVacio(),
-        };
+          ].join("\n")
+        );
       }
 
       return {
@@ -77,11 +90,7 @@ export class EntregaService {
 
     if (opcion === "2") {
       await this.anotarEnPedido(pedidoId, "Entrega: cliente pasa a recoger");
-      return {
-        respuesta: construirEntregaRecoger(),
-        estadoNuevo: "MENU_PRINCIPAL",
-        carrito: carritoVacio(),
-      };
+      return this.finalizarEntrega(construirEntregaRecoger());
     }
 
     if (opcion === "1") {
@@ -90,11 +99,9 @@ export class EntregaService {
           pedidoId,
           `Envío a domicilio: ${direccionExistente}`
         );
-        return {
-          respuesta: construirEntregaDomicilioExistente(direccionExistente),
-          estadoNuevo: "MENU_PRINCIPAL",
-          carrito: carritoVacio(),
-        };
+        return this.finalizarEntrega(
+          construirEntregaDomicilioExistente(direccionExistente)
+        );
       }
 
       return {
@@ -146,11 +153,7 @@ export class EntregaService {
       `Envío a domicilio (dirección registrada): ${direccion}`
     );
 
-    return {
-      respuesta: construirEntregaDireccionGuardada(direccion),
-      estadoNuevo: "MENU_PRINCIPAL",
-      carrito: carritoVacio(),
-    };
+    return this.finalizarEntrega(construirEntregaDireccionGuardada(direccion));
   }
 
   private async anotarEnPedido(pedidoId: string, nota: string): Promise<void> {

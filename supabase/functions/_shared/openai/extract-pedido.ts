@@ -2,9 +2,12 @@ import { historialMaxMensajes, openaiApiKey, openaiModel } from "../env.ts";
 import type { MensajeHistorial } from "../types.ts";
 
 export type LineaExtraidaIA = {
+  producto_id?: string;
   producto_nombre: string;
   cantidad: number;
   unidad: "kg" | "pieza";
+  cantidad_texto?: string;
+  texto_original?: string;
 };
 
 export type AnalisisPedidoIA = {

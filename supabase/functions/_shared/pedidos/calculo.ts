@@ -85,20 +85,22 @@ export function crearLineaPedido(input: {
   cantidad: number;
   unidadCaptura: UnidadCaptura;
   precioLista: number;
+  cantidadTexto?: string | null;
 }): LineaPedidoInsert {
+  const cantidadEsTexto = Boolean(input.cantidadTexto?.trim());
   const precio_aplicado = normalizarPrecioAplicado(input.precioLista);
   const subtotal = calcularSubtotalLineaCaptura(
     input.unidadCaptura,
     input.cantidad,
     precio_aplicado,
     null,
-    false
+    cantidadEsTexto
   );
 
   return {
     producto_id: input.producto_id,
     cantidad_solicitada: input.cantidad,
-    cantidad_texto: null,
+    cantidad_texto: input.cantidadTexto?.trim() || null,
     unidad: input.unidadCaptura,
     tipo_calculo: input.tipo_calculo,
     peso_real: null,

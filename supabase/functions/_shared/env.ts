@@ -1,5 +1,7 @@
 /** Lee secrets de Supabase Edge Functions con aliases compatibles con DICATO. */
 
+import { canonicalizarWhatsAppFromNegocio } from "./whatsapp/phone.ts";
+
 export function envOpcional(...nombres: string[]): string | null {
   for (const nombre of nombres) {
     const valor = Deno.env.get(nombre)?.trim();
@@ -37,7 +39,7 @@ export function ycloudWebhookSecret(): string | null {
   return envOpcional("YCLOUD_WEBHOOK_SECRET", "WHATSAPP_WEBHOOK_SECRET");
 }
 
-/** Número del negocio en E.164 (ej. +525512345678). */
+/** Número del negocio en E.164 (ej. +525635594183). */
 export function ycloudWhatsAppFrom(override?: string | null): string {
   const from =
     override?.trim() ||
@@ -50,7 +52,7 @@ export function ycloudWhatsAppFrom(override?: string | null): string {
     );
   }
 
-  return from.startsWith("+") ? from : `+${from.replace(/\D/g, "")}`;
+  return canonicalizarWhatsAppFromNegocio(from);
 }
 
 export function whatsappAccessToken(): string {

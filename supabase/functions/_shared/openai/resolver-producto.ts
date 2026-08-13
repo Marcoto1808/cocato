@@ -1,4 +1,7 @@
-import { normalizarTextoPedido } from "./cantidad-natural.ts";
+import {
+  normalizarCantidadTextoParaDisplay,
+  normalizarTextoPedido,
+} from "./cantidad-natural.ts";
 import type { ProductoCatalogo } from "../repositories/product.repository.ts";
 
 const PALABRA_A_NUMERO: Record<string, number> = {
@@ -27,6 +30,7 @@ const PALABRA_A_NUMERO: Record<string, number> = {
   media: 0.5,
 };
 
+/** Singulariza una palabra en español (capotes → capote, dobles → doble). */
 export function singularizarPalabra(palabra: string): string {
   const t = normalizarTextoPedido(palabra);
   if (t.length <= 2) return t;
@@ -37,7 +41,8 @@ export function singularizarPalabra(palabra: string): string {
     if (t.endsWith("bles")) return t.slice(0, -1);
     if (t.endsWith("tes")) return t.slice(0, -1);
     if (t.endsWith("ces")) return t.slice(0, -2) + "z";
-    return t.slice(0, -2);
+    if (t.endsWith("nes")) return t.slice(0, -1);
+    return t.slice(0, -1);
   }
 
   if (t.endsWith("s") && !t.endsWith("ss")) {
@@ -47,12 +52,46 @@ export function singularizarPalabra(palabra: string): string {
   return t;
 }
 
-export function normalizarNombreProducto(nombre: string): string {
-  return nombre
-    .split(/\s+/)
-    .filter(Boolean)
-    .map(singularizarPalabra)
+const PALABRAS_SIN_PLURALIZAR = new Set([
+  "a",
+  "al",
+  "con",
+  "de",
+  "del",
+  "el",
+  "en",
+  "la",
+  "las",
+  "los",
+  "para",
+  "sin",
+  "y",
+]);
+
+/**
+ * Normaliza plurales comerciales a singular antes de buscar en catálogo.
+ * Solo uso interno de interpretación; no altera nombres almacenados.
+ */
+export function normalizarPluralesComerciales(nombre: string): string {
+  const partes = nombre.trim().split(/\s+/).filter(Boolean);
+  if (partes.length === 0) return "";
+
+  return partes
+    .map((parte, indice) => {
+      const parteNorm = normalizarTextoPedido(parte);
+      const anteriorNorm =
+        indice > 0 ? normalizarTextoPedido(partes[indice - 1]) : "";
+
+      if (PALABRAS_SIN_PLURALIZAR.has(parteNorm)) return parteNorm;
+      if (PALABRAS_SIN_PLURALIZAR.has(anteriorNorm)) return parteNorm;
+
+      return singularizarPalabra(parte);
+    })
     .join(" ");
+}
+
+export function normalizarNombreProducto(nombre: string): string {
+  return normalizarPluralesComerciales(nombre);
 }
 
 function pluralizarPalabra(palabra: string): string {
@@ -130,9 +169,16 @@ export function separarCantidadInicial(texto: string): {
     const unidad =
       unidadToken && /^(kg|kilos?|kilo)$/.test(unidadToken) ? "kg" : unidadToken ? "pieza" : null;
 
+    const unidadFinal: "kg" | "pieza" = unidad ?? "pieza";
+
     return {
       cantidad: cantidadParseada.cantidad,
-      cantidadTexto: cantidadParseada.cantidadTexto,
+      cantidadTexto: normalizarCantidadTextoParaDisplay({
+        cantidad: cantidadParseada.cantidad,
+        unidad: unidadFinal,
+        cantidadTexto: cantidadParseada.cantidadTexto,
+        segmento: limpio,
+      }),
       unidad,
       resto,
     };
@@ -176,29 +222,120 @@ function resolverProductoPorAlias(
   return encontrado;
 }
 
+function dedupeProductos(productos: ProductoCatalogo[]): ProductoCatalogo[] {
+  const vistos = new Set<string>();
+  const opciones: ProductoCatalogo[] = [];
+
+  for (const producto of productos) {
+    if (vistos.has(producto.id)) continue;
+    vistos.add(producto.id);
+    opciones.push(producto);
+    if (opciones.length >= 5) break;
+  }
+
+  return opciones;
+}
+
+function distanciaLevenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+
+  const filas = a.length + 1;
+  const columnas = b.length + 1;
+  const matrix = Array.from({ length: filas }, () =>
+    Array<number>(columnas).fill(0)
+  );
+
+  for (let i = 0; i < filas; i += 1) matrix[i][0] = i;
+  for (let j = 0; j < columnas; j += 1) matrix[0][j] = j;
+
+  for (let i = 1; i < filas; i += 1) {
+    for (let j = 1; j < columnas; j += 1) {
+      const costo = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + costo
+      );
+    }
+  }
+
+  return matrix[a.length][b.length];
+}
+
+function limiteDistanciaAproximada(palabra: string): number {
+  if (palabra.length <= 4) return 1;
+  return 2;
+}
+
+function palabraPrincipalProducto(nombre: string): string {
+  return normalizarNombreProducto(nombre).split(/\s+/).filter(Boolean)[0] ?? "";
+}
+
+function resolverProductoPorCoincidenciaAproximada(
+  buscadoNorm: string,
+  productos: ProductoCatalogo[]
+): ProductoCatalogo | null {
+  const palabraBuscada = buscadoNorm.split(/\s+/).filter(Boolean)[0] ?? "";
+  if (palabraBuscada.length < 4) return null;
+
+  const limite = limiteDistanciaAproximada(palabraBuscada);
+  let mejor: { producto: ProductoCatalogo; dist: number } | null = null;
+
+  for (const producto of productos) {
+    const candidatos = new Set<string>([
+      palabraPrincipalProducto(producto.nombre),
+      ...(producto.aliases ?? []).map((alias) => palabraPrincipalProducto(alias)),
+    ]);
+
+    for (const candidato of candidatos) {
+      if (candidato.length < 4) continue;
+      const dist = distanciaLevenshtein(palabraBuscada, candidato);
+      if (dist > limite) continue;
+
+      if (!mejor || dist < mejor.dist) {
+        mejor = { producto, dist };
+      } else if (mejor && dist === mejor.dist && producto.id !== mejor.producto.id) {
+        return null;
+      }
+    }
+  }
+
+  return mejor?.producto ?? null;
+}
+
+export type ContextoResolucionProducto = {
+  categoriaContexto?: string | null;
+};
+
 export function resolverProductoEnCatalogo(
   nombreBuscado: string,
-  productos: ProductoCatalogo[]
+  productos: ProductoCatalogo[],
+  _contexto?: ContextoResolucionProducto
 ):
   | { tipo: "ok"; producto: ProductoCatalogo }
-  | { tipo: "ambiguo"; opciones: string[] }
+  | { tipo: "ambiguo"; opciones: ProductoCatalogo[] }
   | { tipo: "no_encontrado" } {
   const buscado = nombreBuscado.trim();
   if (!buscado) return { tipo: "no_encontrado" };
 
-  const buscadoNorm = normalizarNombreProducto(buscado);
+  const buscadoNorm = normalizarPluralesComerciales(buscado);
   const ordenados = productosPorEspecificidad(productos);
+  const exactos: ProductoCatalogo[] = [];
 
   for (const producto of ordenados) {
     if (nombresEquivalentes(buscado, producto.nombre)) {
-      return { tipo: "ok", producto };
+      exactos.push(producto);
     }
+  }
 
-    for (const variante of variantesNombreProducto(producto.nombre)) {
-      if (buscadoNorm === normalizarNombreProducto(variante)) {
-        return { tipo: "ok", producto };
-      }
-    }
+  if (exactos.length === 1) {
+    return { tipo: "ok", producto: exactos[0] };
+  }
+
+  if (exactos.length > 1) {
+    return { tipo: "ambiguo", opciones: dedupeProductos(exactos) };
   }
 
   const porAlias = resolverProductoPorAlias(buscadoNorm, ordenados);
@@ -206,33 +343,24 @@ export function resolverProductoEnCatalogo(
     return { tipo: "ok", producto: porAlias };
   }
 
-  const candidatos: ProductoCatalogo[] = [];
-
+  const parciales: ProductoCatalogo[] = [];
   for (const producto of ordenados) {
     const catalogoNorm = normalizarNombreProducto(producto.nombre);
-
-    if (buscadoNorm === catalogoNorm) {
-      candidatos.push(producto);
-      continue;
-    }
-
-    if (buscadoNorm.startsWith(`${catalogoNorm} `)) {
-      candidatos.push(producto);
-      continue;
-    }
-
     if (catalogoNorm.startsWith(`${buscadoNorm} `)) {
-      candidatos.push(producto);
+      parciales.push(producto);
     }
   }
 
-  if (candidatos.length === 1) {
-    return { tipo: "ok", producto: candidatos[0] };
+  if (parciales.length >= 1) {
+    return { tipo: "ambiguo", opciones: dedupeProductos(parciales) };
   }
 
-  if (candidatos.length > 1) {
-    const opciones = [...new Set(candidatos.map((p) => p.nombre))].slice(0, 5);
-    return { tipo: "ambiguo", opciones };
+  const aproximado = resolverProductoPorCoincidenciaAproximada(
+    buscadoNorm,
+    ordenados
+  );
+  if (aproximado) {
+    return { tipo: "ok", producto: aproximado };
   }
 
   return { tipo: "no_encontrado" };
@@ -240,18 +368,20 @@ export function resolverProductoEnCatalogo(
 
 export function pareceNombreProducto(
   texto: string,
-  productos: ProductoCatalogo[]
+  productos: ProductoCatalogo[],
+  contexto?: ContextoResolucionProducto
 ): ProductoCatalogo | null {
   if (tienePrefijoCantidad(texto)) return null;
 
-  const resolucion = resolverProductoEnCatalogo(texto, productos);
+  const resolucion = resolverProductoEnCatalogo(texto, productos, contexto);
   if (resolucion.tipo === "ok") return resolucion.producto;
   return null;
 }
 
 export function extraerCantidadYProducto(
   segmento: string,
-  productos: ProductoCatalogo[]
+  productos: ProductoCatalogo[],
+  contexto?: ContextoResolucionProducto
 ): {
   cantidad: number;
   cantidadTexto: string;
@@ -261,7 +391,7 @@ export function extraerCantidadYProducto(
   const separado = separarCantidadInicial(segmento);
   if (!separado) return null;
 
-  const resolucion = resolverProductoEnCatalogo(separado.resto, productos);
+  const resolucion = resolverProductoEnCatalogo(separado.resto, productos, contexto);
   if (resolucion.tipo !== "ok") return null;
 
   return {

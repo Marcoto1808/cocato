@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "crypto";
+import { canonicalizarWhatsAppFromNegocio } from "@/lib/whatsapp/phone-utils";
 
 export type WhatsAppInboundMessage = {
   from: string;
@@ -214,7 +215,7 @@ export function ycloudWhatsAppFrom(override?: string | null): string {
     );
   }
 
-  return from.startsWith("+") ? from : `+${from.replace(/\D/g, "")}`;
+  return canonicalizarWhatsAppFromNegocio(from);
 }
 
 function formatoE164(valor: string): string {

@@ -20,22 +20,13 @@ export type DatosRegistroNegocio = {
 export function parsearDatosRegistro(
   texto: string
 ): DatosRegistroNegocio | null {
-  const limpio = texto.trim();
-  if (!limpio) return null;
+  const nombreNegocio = texto.trim();
+  if (!nombreNegocio) return null;
 
-  const separadores = [" - ", " – ", " — ", "-"];
-  for (const sep of separadores) {
-    const indice = limpio.lastIndexOf(sep);
-    if (indice <= 0) continue;
-
-    const nombreNegocio = limpio.slice(0, indice).trim();
-    const tipoNegocio = limpio.slice(indice + sep.length).trim();
-    if (nombreNegocio.length >= 2 && tipoNegocio.length >= 2) {
-      return { nombreNegocio, tipoNegocio };
-    }
-  }
-
-  return null;
+  return {
+    nombreNegocio,
+    tipoNegocio: "",
+  };
 }
 
 function normalizarTexto(valor: string): string {

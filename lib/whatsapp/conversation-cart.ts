@@ -1,4 +1,12 @@
 import type { LineaInterpretada } from "@/lib/interpretacion/mensaje-interpreter";
+import { esLineaLibre, esLineaPendienteDisambiguacion } from "@/lib/interpretacion/linea-libre";
+import type { DisambiguacionPendiente } from "@/lib/interpretacion/disambiguacion";
+import type { EstadoComercialConversacion } from "@/lib/whatsapp/conversation-states";
+
+export type RecuperacionPedidoPendiente = {
+  estadoGuardado: EstadoComercialConversacion;
+  carritoGuardado: Omit<CarritoConversacion, "recuperacionPedido">;
+};
 
 export type LineaCarrito = {
   textoOriginal: string;
@@ -13,6 +21,13 @@ export type ContextoGuiado = {
   categoria?: string;
   productoId?: string;
   productoNombre?: string;
+  textoPedido?: string;
+  especiePreferida?: "Res" | "Cerdo";
+  slotsGuiado?: import("@/lib/whatsapp/pedido-guiado-productos").ProductoGuiadoSlot[];
+  /** Productos seleccionados pendientes de capturar cantidad. */
+  colaCantidadGuiada?: import("@/lib/whatsapp/pedido-guiado-productos").ProductoGuiadoSlot[];
+  /** Índice del producto actual dentro de colaCantidadGuiada. */
+  indiceCantidadGuiada?: number;
 };
 
 export type ContextoRegistro = {
@@ -28,7 +43,11 @@ export type CarritoConversacion = {
   lineas: LineaCarrito[];
   totalEstimado?: number;
   observaciones?: string[];
+  /** Especie elegida al inicio del pedido guiado (res / cerdo). */
+  especiePreferida?: "Res" | "Cerdo";
   contextoGuiado?: ContextoGuiado | null;
+  contextoDisambiguacion?: DisambiguacionPendiente | null;
+  recuperacionPedido?: RecuperacionPedidoPendiente | null;
   registro?: ContextoRegistro | null;
   entrega?: ContextoEntrega | null;
   /** Texto acumulado en modo pedido libre antes de interpretar. */
@@ -37,7 +56,18 @@ export type CarritoConversacion = {
 };
 
 export function carritoVacio(): CarritoConversacion {
-  return { lineas: [], contextoGuiado: null };
+  return {
+    lineas: [],
+    contextoGuiado: null,
+    contextoDisambiguacion: null,
+    recuperacionPedido: null,
+    registro: null,
+    entrega: null,
+    observaciones: undefined,
+    totalEstimado: undefined,
+    mensajeLibre: undefined,
+    modo: undefined,
+  };
 }
 
 export function parsearCarritoConversacion(valor: unknown): CarritoConversacion {
@@ -58,6 +88,26 @@ export function parsearCarritoConversacion(valor: unknown): CarritoConversacion 
       )
     : [];
 
+  const contextoGuiadoRaw =
+    raw.contextoGuiado && typeof raw.contextoGuiado === "object"
+      ? raw.contextoGuiado
+      : null;
+
+  const contextoGuiado = contextoGuiadoRaw
+    ? {
+        ...contextoGuiadoRaw,
+        colaCantidadGuiada: Array.isArray(contextoGuiadoRaw.colaCantidadGuiada)
+          ? contextoGuiadoRaw.colaCantidadGuiada
+          : undefined,
+        indiceCantidadGuiada:
+          typeof contextoGuiadoRaw.indiceCantidadGuiada === "number"
+            ? contextoGuiadoRaw.indiceCantidadGuiada
+            : typeof contextoGuiadoRaw.indiceCantidadGuiada === "string"
+              ? Number(contextoGuiadoRaw.indiceCantidadGuiada)
+              : undefined,
+      }
+    : null;
+
   return {
     lineas,
     totalEstimado:
@@ -65,13 +115,22 @@ export function parsearCarritoConversacion(valor: unknown): CarritoConversacion 
     observaciones: Array.isArray(raw.observaciones)
       ? raw.observaciones.filter((item): item is string => typeof item === "string")
       : undefined,
-    contextoGuiado:
-      raw.contextoGuiado && typeof raw.contextoGuiado === "object"
-        ? raw.contextoGuiado
+    contextoGuiado,
+    contextoDisambiguacion:
+      raw.contextoDisambiguacion && typeof raw.contextoDisambiguacion === "object"
+        ? raw.contextoDisambiguacion
+        : null,
+    recuperacionPedido:
+      raw.recuperacionPedido && typeof raw.recuperacionPedido === "object"
+        ? raw.recuperacionPedido
         : null,
     modo:
       raw.modo === "guiado" || raw.modo === "libre" || raw.modo === "repetir"
         ? raw.modo
+        : undefined,
+    especiePreferida:
+      raw.especiePreferida === "Res" || raw.especiePreferida === "Cerdo"
+        ? raw.especiePreferida
         : undefined,
     mensajeLibre:
       typeof raw.mensajeLibre === "string" ? raw.mensajeLibre : undefined,
@@ -95,7 +154,9 @@ export function agregarLineasAlCarrito(
   const nuevas = interpretadas.map((linea) =>
     lineaCarritoDesdeInterpretada(
       linea,
-      nombresProducto.get(linea.producto_id) ?? linea.textoOriginal
+      linea.nombreMostrar ??
+        nombresProducto.get(linea.producto_id) ??
+        linea.textoOriginal
     )
   );
 
@@ -124,4 +185,24 @@ export function lineaCarritoDesdeInterpretada(
     unidad: linea.unidad,
     cantidadTexto: linea.cantidadTexto,
   };
+}
+
+export function reemplazarLineaPendienteDisambiguacion(
+  lineas: LineaCarrito[],
+  segmentoPendiente: string,
+  lineaResuelta: LineaCarrito
+): LineaCarrito[] {
+  const indice = lineas.findIndex(
+    (linea) =>
+      esLineaPendienteDisambiguacion(linea.producto_id) &&
+      linea.textoOriginal === segmentoPendiente
+  );
+
+  if (indice < 0) {
+    return [...lineas, lineaResuelta];
+  }
+
+  const actualizadas = [...lineas];
+  actualizadas[indice] = lineaResuelta;
+  return actualizadas;
 }

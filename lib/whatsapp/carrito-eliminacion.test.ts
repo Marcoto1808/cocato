@@ -43,6 +43,9 @@ describe("parsearSolicitudEliminacion", () => {
       "cancelar capotes",
       "remueve capotes",
       "sacar capotes",
+      "no quiero la molida",
+      "mejor quita las piernas",
+      "elimina la molida",
     ]) {
       assert.ok(esSolicitudEliminacion(mensaje), mensaje);
     }
@@ -50,9 +53,6 @@ describe("parsearSolicitudEliminacion", () => {
 
   it("reconoce vaciar carrito", () => {
     assert.deepEqual(parsearSolicitudEliminacion("quita todo"), { tipo: "vaciar" });
-    assert.deepEqual(parsearSolicitudEliminacion("Empezar de nuevo"), {
-      tipo: "vaciar",
-    });
   });
 
   it("no confunde cancelar pedido con eliminar producto", () => {
@@ -70,6 +70,20 @@ describe("parsearSolicitudEliminacion", () => {
     assert.deepEqual(parsearSolicitudEliminacion("Quita capotes"), {
       tipo: "linea_completa",
       productoTexto: "capotes",
+    });
+
+    assert.deepEqual(parsearSolicitudEliminacion("elimina la molida"), {
+      tipo: "linea_completa",
+      productoTexto: "molida",
+    });
+
+    assert.deepEqual(parsearSolicitudEliminacion("quita los 200 pesos de molida"), {
+      tipo: "linea_completa",
+      productoTexto: "molida",
+    });
+
+    assert.deepEqual(parsearSolicitudEliminacion("borra el ultimo producto"), {
+      tipo: "ultima_linea",
     });
   });
 });
@@ -112,7 +126,8 @@ describe("aplicarEliminacionCarrito", () => {
     );
 
     assert.match(mensaje, /Listo, eliminé 1\.5 Capotes\./);
-    assert.match(mensaje, /Hasta el momento lleva:/);
+    assert.match(mensaje, /Su pedido:/);
+    assert.match(mensaje, /¿Confirma su pedido o gusta agregar algo más\?/);
     assert.match(mensaje, /• 2 Capotes Dobles/);
   });
 
@@ -186,24 +201,8 @@ describe("aplicarEliminacionCarrito", () => {
     assert.equal(resultado.detalleEliminado, "todo");
   });
 
-  it("caso 5: empezar de nuevo vacía el carrito", () => {
-    const carrito = carritoCon({
-      textoOriginal: "3 pza Capote",
-      producto_id: "capote-1",
-      producto_nombre: "Capote",
-      cantidad: 3,
-      unidad: "pieza",
-    });
-
-    const solicitud = parsearSolicitudEliminacion("Empezar de nuevo");
-    assert.ok(solicitud);
-
-    const resultado = aplicarEliminacionCarrito(carrito, solicitud!, CATALOGO);
-    assert.equal(resultado.ok, true);
-    if (!resultado.ok) return;
-
-    assert.equal(resultado.carrito.lineas.length, 0);
-    assert.equal(resultado.detalleEliminado, "todo");
+  it("caso 5: empezar de nuevo ya no vacía desde eliminación parcial", () => {
+    assert.equal(parsearSolicitudEliminacion("Empezar de nuevo"), null);
   });
 
   it("reporta error si el producto no está en el carrito", () => {

@@ -14,7 +14,7 @@ export async function obtenerOCrearConversacion(
 
   const { data: existente, error: errorBusqueda } = await db
     .from("whatsapp_conversations")
-    .select("id, cliente_id, wa_phone, estado_comercial, carrito_json")
+    .select("id, cliente_id, wa_phone, estado_comercial, carrito_json, ultimo_mensaje_en")
     .eq("wa_phone", phone)
     .maybeSingle();
 
@@ -42,7 +42,7 @@ export async function obtenerOCrearConversacion(
       estado_comercial: "NUEVA",
       ultimo_mensaje_en: new Date().toISOString(),
     })
-    .select("id, cliente_id, wa_phone, estado_comercial, carrito_json")
+    .select("id, cliente_id, wa_phone, estado_comercial, carrito_json, ultimo_mensaje_en")
     .single();
 
   if (error || !data) {

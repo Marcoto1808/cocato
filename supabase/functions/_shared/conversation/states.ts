@@ -3,15 +3,35 @@ import {
   formatearCantidadEnResumen,
   parsearSegmentoPedido,
 } from "../openai/cantidad-natural.ts";
+import { esLineaLibre, esLineaPendienteDisambiguacion } from "../openai/linea-libre.ts";
+import type { DisambiguacionPendiente } from "../openai/disambiguacion.ts";
+import { construirMensajeDisambiguacion } from "../openai/disambiguacion.ts";
+import type { CarritoConversacion } from "./cart.ts";
+import {
+  normalizarEntradaConversacional as normalizarEntrada,
+  OPCION_CONFIRMAR,
+  OPCIONES_DESEAR_AGREGAR_MAS,
+  OPCIONES_ENTREGA,
+  OPCIONES_ENTREGA_IDS,
+  OPCIONES_MENU_PRINCIPAL,
+  OPCIONES_SI_NO,
+  OPCIONES_CANCELACION,
+  OPCION_RECHAZAR,
+  OPCION_SEGUIR_AGREGANDO,
+  OPCION_TERMINAR_PEDIDO,
+  resolverOpcionConversacional,
+} from "./resolver-opcion-conversacional.ts";
 export type EstadoComercialConversacion =
   | "NUEVA"
   | "REGISTRO_CLIENTE"
   | "MENU_PRINCIPAL"
+  | "PEDIDO_GUIADO_ESPECIE"
   | "PEDIDO_GUIADO_CATEGORIA"
   | "PEDIDO_GUIADO_PRODUCTO"
   | "PEDIDO_GUIADO_CANTIDAD"
   | "PEDIDO_EN_CONSTRUCCION"
   | "ESPERANDO_CONFIRMACION"
+  | "RECUPERACION_PEDIDO"
   | "ENTREGA_OPCION"
   | "ENTREGA_DIRECCION"
   | "CONFIRMADO"
@@ -21,11 +41,13 @@ export const ESTADOS_COMERCIALES: EstadoComercialConversacion[] = [
   "NUEVA",
   "REGISTRO_CLIENTE",
   "MENU_PRINCIPAL",
+  "PEDIDO_GUIADO_ESPECIE",
   "PEDIDO_GUIADO_CATEGORIA",
   "PEDIDO_GUIADO_PRODUCTO",
   "PEDIDO_GUIADO_CANTIDAD",
   "PEDIDO_EN_CONSTRUCCION",
   "ESPERANDO_CONFIRMACION",
+  "RECUPERACION_PEDIDO",
   "ENTREGA_OPCION",
   "ENTREGA_DIRECCION",
   "CONFIRMADO",
@@ -36,17 +58,6 @@ export function esEstadoComercialConversacion(
   valor: string | null | undefined
 ): valor is EstadoComercialConversacion {
   return ESTADOS_COMERCIALES.includes(valor as EstadoComercialConversacion);
-}
-
-function normalizarEntrada(texto: string): string {
-  return texto
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .replace(/[^\w\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 export function esSaludo(texto: string): boolean {
@@ -75,51 +86,13 @@ export function esSaludo(texto: string): boolean {
 export function esOpcionMenuPrincipal(
   texto: string
 ): "1" | "2" | "3" | null {
-  const normalizado = normalizarEntrada(texto);
-  if (
-    normalizado === "1" ||
-    normalizado.startsWith("1 ") ||
-    normalizado.includes("escribir")
-  ) {
-    return "1";
-  }
-  if (
-    normalizado === "2" ||
-    normalizado.startsWith("2 ") ||
-    normalizado.includes("guiado")
-  ) {
-    return "2";
-  }
-  if (
-    normalizado === "3" ||
-    normalizado.startsWith("3 ") ||
-    normalizado.includes("repetir") ||
-    normalizado.includes("ultimo")
-  ) {
-    return "3";
-  }
-  return null;
+  return resolverOpcionConversacional(texto, OPCIONES_MENU_PRINCIPAL);
 }
 
 export function esOpcionEntrega(texto: string): "1" | "2" | null {
-  const normalizado = normalizarEntrada(texto);
-  if (
-    normalizado === "1" ||
-    normalizado.startsWith("1 ") ||
-    normalizado.includes("domicilio") ||
-    normalizado.includes("envio")
-  ) {
-    return "1";
-  }
-  if (
-    normalizado === "2" ||
-    normalizado.startsWith("2 ") ||
-    normalizado.includes("recoger") ||
-    normalizado.includes("recojo") ||
-    normalizado.includes("pasare")
-  ) {
-    return "2";
-  }
+  const opcion = resolverOpcionConversacional(texto, OPCIONES_ENTREGA);
+  if (opcion === OPCIONES_ENTREGA_IDS.envio) return "1";
+  if (opcion === OPCIONES_ENTREGA_IDS.recoger) return "2";
   return null;
 }
 
@@ -134,34 +107,28 @@ export function esVolverMenu(texto: string): boolean {
 }
 
 export function esClienteIndicaListo(texto: string): boolean {
-  const normalizado = normalizarEntrada(texto);
-  const frases = [
-    "listo",
-    "eso es todo",
-    "nada mas",
-    "confirmar",
-    "terminar",
-    "ya esta",
-    "fin",
-  ];
-  return frases.some(
-    (frase) => normalizado === frase || normalizado.startsWith(`${frase} `)
+  return (
+    resolverOpcionConversacional(texto, OPCIONES_DESEAR_AGREGAR_MAS) ===
+    OPCION_TERMINAR_PEDIDO
+  );
+}
+
+export function esClienteDeseaSeguirAgregando(texto: string): boolean {
+  return (
+    resolverOpcionConversacional(texto, OPCIONES_DESEAR_AGREGAR_MAS) ===
+    OPCION_SEGUIR_AGREGANDO
   );
 }
 
 export function esConfirmacion(texto: string): boolean {
-  const normalizado = normalizarEntrada(texto);
-  const frases = ["si", "sí", "confirmo", "confirmar", "adelante", "ok", "vale"];
-  return frases.some(
-    (frase) => normalizado === frase || normalizado.startsWith(`${frase} `)
+  return (
+    resolverOpcionConversacional(texto, OPCIONES_SI_NO) === OPCION_CONFIRMAR
   );
 }
 
 export function esCancelacion(texto: string): boolean {
-  const normalizado = normalizarEntrada(texto);
-  const frases = ["no", "cancelar", "cancelo", "olvidalo", "olvídalo", "anular"];
-  return frases.some(
-    (frase) => normalizado === frase || normalizado.startsWith(`${frase} `)
+  return (
+    resolverOpcionConversacional(texto, OPCIONES_CANCELACION) === OPCION_RECHAZAR
   );
 }
 
@@ -190,7 +157,12 @@ export function parsearSeleccionNumerica(
   texto: string,
   max: number
 ): number | null {
-  const match = texto.trim().match(/^(\d+)/);
+  const limpio = texto.trim();
+  if (/\p{L}/u.test(limpio.normalize("NFD").replace(/\p{M}/gu, ""))) {
+    return null;
+  }
+
+  const match = limpio.match(/^(\d+)$/);
   if (!match) return null;
   const valor = Number(match[1]);
   if (!Number.isInteger(valor) || valor < 1 || valor > max) return null;
@@ -214,8 +186,6 @@ export function nombreParaSaludo(input: {
   propietario: string | null;
   nombre_negocio: string;
 }): string {
-  const propietario = input.propietario?.trim();
-  if (propietario) return propietario;
   return input.nombre_negocio.trim();
 }
 
@@ -251,13 +221,25 @@ export function construirMenuPostRegistro(): string {
 
 export function construirMenuPrincipal(nombre: string): string {
   return [
-    `Hola, Don ${nombre}.`,
+    `Hola, ${nombre}.`,
     "",
     "¿Cómo le podemos ayudar?",
     "",
     "1️⃣ Escribir mi pedido",
     "2️⃣ Pedido guiado",
     "3️⃣ Repetir mi último pedido",
+  ].join("\n");
+}
+
+export function construirMenuEspecie(): string {
+  return [
+    "¿Su pedido es de res o de cerdo?",
+    "",
+    "1. Res",
+    "2. Cerdo",
+    "",
+    "Responde con el número o escribe res / cerdo / puerco.",
+    "Escribe *menu* para volver al inicio.",
   ].join("\n");
 }
 
@@ -316,6 +298,8 @@ export function construirResumenCarrito(
     cantidad: number;
     unidad: string;
     producto_nombre: string;
+    producto_id?: string;
+    textoOriginal?: string;
     cantidadTexto?: string | null;
   }>,
   observaciones?: string[] | null
@@ -325,14 +309,28 @@ export function construirResumenCarrito(
   }
 
   const detalle = lineas
-    .map((linea) =>
-      formatearCantidadEnResumen(
+    .map((linea) => {
+      if (linea.producto_id && esLineaLibre(linea.producto_id)) {
+        return `• ${linea.textoOriginal?.trim() || linea.producto_nombre}`;
+      }
+      if (linea.producto_id && esLineaPendienteDisambiguacion(linea.producto_id)) {
+        const base = formatearCantidadEnResumen(
+          linea.cantidad,
+          linea.unidad === "kg" ? "kg" : "pieza",
+          linea.producto_nombre,
+          linea.cantidadTexto,
+          linea.textoOriginal
+        );
+        return `${base} (pendiente de confirmar)`;
+      }
+      return formatearCantidadEnResumen(
         linea.cantidad,
         linea.unidad === "kg" ? "kg" : "pieza",
         linea.producto_nombre,
-        linea.cantidadTexto
-      )
-    )
+        linea.cantidadTexto,
+        linea.textoOriginal
+      );
+    })
     .join("\n");
 
   if (!observaciones?.length) {
@@ -343,39 +341,95 @@ export function construirResumenCarrito(
   return [detalle, "", "Observaciones:", obs].join("\n");
 }
 
-export function construirSolicitudConfirmacion(
-  resumen: string
+export function carritoTieneInformacionPendiente(
+  carrito: Pick<CarritoConversacion, "lineas" | "contextoDisambiguacion">
+): boolean {
+  if (carrito.contextoDisambiguacion) return true;
+  return carrito.lineas.some(
+    (linea) =>
+      linea.producto_id && esLineaPendienteDisambiguacion(linea.producto_id)
+  );
+}
+
+export function construirSolicitudInformacionPendiente(
+  resumen: string,
+  pendiente: DisambiguacionPendiente
 ): string {
   return [
-    "Le confirmo su pedido:",
+    "Su pedido:",
     "",
     resumen,
     "",
-    "¿Es correcto?",
+    "⚠️ FALTA INFORMACIÓN",
+    "",
+    construirMensajeDisambiguacion(
+      pendiente.opciones,
+      pendiente.productoBuscado
+    ),
   ].join("\n");
+}
+
+export function construirSolicitudConfirmacion(
+  resumen: string
+): string {
+  return construirListaPedidoConOpciones(resumen, true);
+}
+
+export function construirRespuestaConfirmacionInvalida(): string {
+  return [
+    "No entendí su respuesta.",
+    "",
+    "Por favor seleccione una opción:",
+    "",
+    "1️⃣ Confirmar pedido",
+    "2️⃣ Agregar algo más",
+    "3️⃣ Empezar de nuevo",
+  ].join("\n");
+}
+
+export function construirRespuestaMenuPrincipalInvalida(menu: string): string {
+  return ["No entendí su respuesta.", "", menu].join("\n");
+}
+
+export function construirListaPedidoConOpciones(
+  resumen: string,
+  incluirReiniciar = false
+): string {
+  const lineas = [
+    "Su pedido:",
+    "",
+    resumen,
+    "",
+    "¿Confirma su pedido o gusta agregar algo más?",
+    "",
+    "1. Confirmar pedido",
+    "2. Agregar algo más",
+  ];
+
+  if (incluirReiniciar) {
+    lineas.push("3. Empezar de nuevo");
+  }
+
+  return lineas.join("\n");
+}
+
+export function construirInstruccionAgregarMas(): string {
+  return ["Perfecto.", "", "Escriba los productos que desea agregar."].join("\n");
 }
 
 export function construirInstruccionPedidoLibre(): string {
   return [
     "Escriba su pedido cuando guste.",
     "",
-    "Ejemplos: 2 capotes, medio capote, 5 kilos de costilla sin grasa.",
+    "Ejemplos: 2 capotes, medio kilo de costilla, 200 pesos de maciza.",
     "",
-    "Cuando termine escriba *listo*.",
+    "Puede escribir varios productos en un solo mensaje.",
     "Escriba *menu* para volver al inicio.",
   ].join("\n");
 }
 
 export function construirMensajePostAgregarCarrito(resumen: string): string {
-  return [
-    "Hasta el momento lleva:",
-    "",
-    resumen,
-    "",
-    "¿Desea agregar algo más?",
-    "",
-    "Escriba otro producto o escriba *listo* para confirmar.",
-  ].join("\n");
+  return construirListaPedidoConOpciones(resumen, false);
 }
 
 export function construirSolicitudEntrega(): string {

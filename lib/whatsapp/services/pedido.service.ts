@@ -4,33 +4,83 @@ import type { ProductoCatalogo } from "@/lib/interpretacion/mensaje-interpreter"
 import {
   agregarLineasAlCarrito,
   carritoVacio,
+  lineaCarritoDesdeInterpretada,
+  reemplazarLineaPendienteDisambiguacion,
   type CarritoConversacion,
   type LineaCarrito,
 } from "@/lib/whatsapp/conversation-cart";
 import { obtenerUltimoPedidoCliente } from "@/lib/whatsapp/conversation-repository";
 import {
+  construirInstruccionAgregarMas,
   construirInstruccionPedidoLibre,
   construirMenuCategorias,
+  construirMenuEspecie,
   construirMenuProductos,
   construirMensajePostAgregarCarrito,
   construirResumenCarrito,
+  construirRespuestaMenuPrincipalInvalida,
   construirSolicitudCantidad,
+  construirSolicitudInformacionPendiente,
   esClienteIndicaListo,
+  esClienteDeseaSeguirAgregando,
   esOpcionMenuPrincipal,
   esSaludo,
   MENSAJE_SIN_ULTIMO_PEDIDO,
-  parsearCantidad,
   parsearSeleccionNumerica,
 } from "@/lib/whatsapp/conversation-states";
-import type { ClienteResuelto } from "@/lib/whatsapp/client-resolver";
+import {
+  construirConfirmacionSeleccionGuiada,
+  construirErrorCantidadGuiada,
+  construirMenuProductosGuiados,
+  construirMensajePostPedidoGuiado,
+  construirPreguntaCantidadGuiada,
+  construirResumenPedidoGuiado,
+  mensajeContieneTextoProducto,
+  parsearCantidadPedidoGuiado,
+  parsearSeleccionesMultiples,
+} from "@/lib/whatsapp/pedido-guiado-cantidad";
+import { esLineaLibre, esLineaPendienteDisambiguacion } from "@/lib/interpretacion/linea-libre";
 import { construirLineasPedidoDesdeInterpretacion } from "@/lib/whatsapp/pedido-desde-mensaje";
 import type { ResultadoTurnoConversacion } from "@/lib/whatsapp/services/conversation-turn.types";
+import {
+  aplicarCorreccionCarrito,
+  construirMensajePostCorregirCarrito,
+  parsearSolicitudCorreccion,
+} from "@/lib/whatsapp/carrito-correccion";
+import {
+  esComandoNuevoPedido,
+  esOpcionConfirmacionPedido,
+  reiniciarPedidoConversacion,
+} from "@/lib/whatsapp/comandos-pedido";
+import {
+  aplicarEspeciePreferidaAlMensaje,
+  combinarLineaConAclaracion,
+} from "@/lib/whatsapp/especie-preferida";
+import { requiereDisambiguacionPorEspecie } from "@/lib/interpretacion/disambiguacion";
+import {
+  construirSlotsPedidoGuiado,
+  construirSlotTextoLibrePedidoGuiado,
+  construirMensajeProductoLibreNoEncontrado,
+  extraerTextoProductoParaValidacionLibre,
+  productosMenuDesdeSlots,
+  validarTextoLibrePedidoGuiado,
+  type ProductoGuiadoSlot,
+} from "@/lib/whatsapp/pedido-guiado-productos";
+import { PRODUCTO_LINEA_LIBRE_ID } from "@/lib/interpretacion/linea-libre";
+import {
+  limpiarPrefijoPedido,
+  segmentarMensajePedido,
+} from "@/lib/interpretacion/cantidad-natural";
+import { separarCantidadInicial } from "@/lib/interpretacion/resolver-producto";
+import { cargarAliasesPorProductos } from "@/lib/producto-aliases";
+import { resolverSeleccionCategoria } from "@/lib/interpretacion/resolver-categoria";
+import { continuarDisambiguacionComercial } from "@/lib/interpretacion/disambiguacion";
+import type { ClienteResuelto } from "@/lib/whatsapp/client-resolver";
 import {
   aplicarEliminacionCarrito,
   construirMensajePostEliminarCarrito,
   parsearSolicitudEliminacion,
 } from "@/lib/whatsapp/carrito-eliminacion";
-import { cargarAliasesPorProductos } from "@/lib/producto-aliases";
 
 type ProductoMenu = {
   id: string;
@@ -64,11 +114,18 @@ export class PedidoService {
   ): Promise<number | null> {
     if (lineas.length === 0) return null;
 
-    const interpretadas = lineas.map((linea) => ({
+    const interpretadas = lineas
+      .filter(
+        (linea) =>
+          !esLineaLibre(linea.producto_id) &&
+          !esLineaPendienteDisambiguacion(linea.producto_id)
+      )
+      .map((linea) => ({
       producto_id: linea.producto_id,
       cantidad: linea.cantidad,
       unidad: linea.unidad,
       textoOriginal: linea.textoOriginal,
+      cantidadTexto: linea.cantidadTexto,
     }));
 
     const resultado = await construirLineasPedidoDesdeInterpretacion(
@@ -85,9 +142,33 @@ export class PedidoService {
     cliente: ClienteResuelto,
     carrito: CarritoConversacion,
     mensaje: string
-  ): Promise<{ ok: true; carrito: CarritoConversacion } | { ok: false; error: string }> {
+  ): Promise<
+    | { ok: true; carrito: CarritoConversacion; aclaracion?: string }
+    | { ok: false; error: string }
+  > {
     const productos = await this.listarProductos();
-    const interpretacion = await this.interpretarTexto(mensaje, productos);
+
+    if (mensajeContieneTextoProducto(mensaje)) {
+      const segmentos = segmentarMensajePedido(
+        limpiarPrefijoPedido(mensaje.trim())
+      );
+      for (const segmento of segmentos) {
+        const textoValidar = extraerTextoProductoParaValidacionLibre(segmento);
+        if (!validarTextoLibrePedidoGuiado(textoValidar, productos)) {
+          return {
+            ok: false,
+            error: construirMensajeProductoLibreNoEncontrado(),
+          };
+        }
+      }
+    }
+
+    const especie =
+      carrito.especiePreferida ?? carrito.contextoGuiado?.especiePreferida;
+    const mensajeInterpretar = especie
+      ? aplicarEspeciePreferidaAlMensaje(mensaje, especie)
+      : mensaje;
+    const interpretacion = await this.interpretarTexto(mensajeInterpretar, productos);
 
     if (interpretacion.tipo === "referencia_historica") {
       return { ok: false, error: interpretacion.motivo };
@@ -103,18 +184,41 @@ export class PedidoService {
       };
     }
 
+    if (interpretacion.lineas.length === 0 && !interpretacion.disambiguacion) {
+      return {
+        ok: false,
+        error: "No pude interpretar el pedido.",
+      };
+    }
+
     const nombres = new Map(
       productos.map((producto) => [producto.id, producto.nombre])
     );
 
+    const carritoActualizado = agregarLineasAlCarrito(
+      carrito,
+      interpretacion.lineas,
+      nombres,
+      interpretacion.observaciones
+    );
+
+    if (interpretacion.disambiguacion) {
+      return {
+        ok: true,
+        carrito: {
+          ...carritoActualizado,
+          contextoDisambiguacion: interpretacion.disambiguacion,
+        },
+        aclaracion: interpretacion.aclaracion,
+      };
+    }
+
     return {
       ok: true,
-      carrito: agregarLineasAlCarrito(
-        carrito,
-        interpretacion.lineas,
-        nombres,
-        interpretacion.observaciones
-      ),
+      carrito: {
+        ...carritoActualizado,
+        contextoDisambiguacion: null,
+      },
     };
   }
 
@@ -130,8 +234,11 @@ export class PedidoService {
       return { respuesta: menu, estadoNuevo: "MENU_PRINCIPAL", carrito };
     }
 
+    if (esComandoNuevoPedido(mensajeRecibido)) {
+      return reiniciarPedidoConversacion(menu, { omitirMensajePrevio: true });
+    }
+
     const opcion = esOpcionMenuPrincipal(mensajeRecibido);
-    const productos = await this.listarProductos();
 
     if (opcion === "1") {
       return {
@@ -142,11 +249,7 @@ export class PedidoService {
     }
 
     if (opcion === "2") {
-      return {
-        respuesta: construirMenuCategorias(this.categoriasOrdenadas(productos)),
-        estadoNuevo: "PEDIDO_GUIADO_CATEGORIA",
-        carrito: { ...carritoVacio(), modo: "guiado", contextoGuiado: {} },
-      };
+      return this.iniciarPedidoGuiado(cliente, carrito);
     }
 
     if (opcion === "3") {
@@ -167,39 +270,46 @@ export class PedidoService {
       };
     }
 
-    const pedidoDirecto = await this.agregarTextoAlCarrito(
-      cliente,
-      { ...carritoVacio(), modo: "libre" },
-      mensajeRecibido
-    );
-
-    if (pedidoDirecto.ok) {
-      const resumen = construirResumenCarrito(
-        pedidoDirecto.carrito.lineas,
-        pedidoDirecto.carrito.observaciones
-      );
-
-      return {
-        respuesta: construirMensajePostAgregarCarrito(resumen),
-        estadoNuevo: "PEDIDO_EN_CONSTRUCCION",
-        carrito: pedidoDirecto.carrito,
-      };
-    }
-
     return {
-      respuesta: `${menu}\n\nResponda 1, 2 o 3 para continuar.`,
+      respuesta: construirRespuestaMenuPrincipalInvalida(menu),
       estadoNuevo: "MENU_PRINCIPAL",
       carrito,
     };
+  }
+
+  async procesarEspecieGuiada(input: {
+    mensajeRecibido: string;
+    cliente: ClienteResuelto;
+    carrito: CarritoConversacion;
+  }): Promise<ResultadoTurnoConversacion> {
+    const seleccion = resolverSeleccionCategoria(input.mensajeRecibido, [
+      "Res",
+      "Cerdo",
+    ]);
+
+    if (!seleccion) {
+      return {
+        respuesta: `Opción no válida.\n\n${construirMenuEspecie()}`,
+        estadoNuevo: "PEDIDO_GUIADO_ESPECIE",
+        carrito: input.carrito,
+      };
+    }
+
+    const especie = seleccion === 1 ? "Res" : "Cerdo";
+    return this.mostrarProductosGuiados(input.cliente, input.carrito, especie);
   }
 
   async procesarCategoria(input: {
     mensajeRecibido: string;
     carrito: CarritoConversacion;
   }): Promise<ResultadoTurnoConversacion> {
+    if (input.carrito.contextoGuiado?.slotsGuiado?.length) {
+      return this.procesarProductoGuiado(input.mensajeRecibido, input.carrito);
+    }
+
     const productos = await this.listarProductos();
     const categorias = this.categoriasOrdenadas(productos);
-    const seleccion = parsearSeleccionNumerica(input.mensajeRecibido, categorias.length);
+    const seleccion = resolverSeleccionCategoria(input.mensajeRecibido, categorias);
 
     if (!seleccion) {
       return {
@@ -225,6 +335,10 @@ export class PedidoService {
     carrito: CarritoConversacion;
     menu: string;
   }): Promise<ResultadoTurnoConversacion> {
+    if (input.carrito.contextoGuiado?.slotsGuiado?.length) {
+      return this.procesarProductoGuiado(input.mensajeRecibido, input.carrito);
+    }
+
     const categoria = input.carrito.contextoGuiado?.categoria;
     if (!categoria) {
       return {
@@ -242,6 +356,19 @@ export class PedidoService {
     );
 
     if (!seleccion) {
+      const textoLibre = input.mensajeRecibido.trim();
+      if (validarTextoLibrePedidoGuiado(textoLibre, productos)) {
+        const agregadoDirecto = this.intentarAgregarTextoLibreGuiadoConCantidad(
+          input.carrito,
+          textoLibre
+        );
+        if (agregadoDirecto) return agregadoDirecto;
+
+        return this.iniciarCapturaCantidadesGuiadas(input.carrito, [
+          construirSlotTextoLibrePedidoGuiado(textoLibre),
+        ]);
+      }
+
       return {
         respuesta: `Opción no válida.\n\n${construirMenuProductos(categoria, productosCategoria)}`,
         estadoNuevo: "PEDIDO_GUIADO_PRODUCTO",
@@ -270,53 +397,162 @@ export class PedidoService {
     carrito: CarritoConversacion;
     menu: string;
   }): Promise<ResultadoTurnoConversacion> {
-    const productoId = input.carrito.contextoGuiado?.productoId;
-    const productoNombre = input.carrito.contextoGuiado?.productoNombre;
+    const cola = input.carrito.contextoGuiado?.colaCantidadGuiada;
+    const indiceRaw = input.carrito.contextoGuiado?.indiceCantidadGuiada ?? 0;
+    const indice = Number(indiceRaw);
 
-    if (!productoId || !productoNombre) {
+    if (cola?.length && Number.isFinite(indice)) {
+      return this.procesarCantidadGuiadaEnCola(input, cola, indice);
+    }
+
+    return {
+      respuesta: input.menu,
+      estadoNuevo: "MENU_PRINCIPAL",
+      carrito: carritoVacio(),
+    };
+  }
+
+  private async procesarCantidadGuiadaEnCola(
+    input: {
+      mensajeRecibido: string;
+      cliente: ClienteResuelto;
+      carrito: CarritoConversacion;
+    },
+    cola: ProductoGuiadoSlot[],
+    indice: number
+  ): Promise<ResultadoTurnoConversacion> {
+    const slot = cola[indice];
+    if (!slot) {
       return {
-        respuesta: input.menu,
+        respuesta: "No hay productos pendientes de cantidad.",
         estadoNuevo: "MENU_PRINCIPAL",
         carrito: carritoVacio(),
       };
     }
 
-    const cantidad = parsearCantidad(input.mensajeRecibido);
-    if (!cantidad) {
+    const parseada = parsearCantidadPedidoGuiado(
+      input.mensajeRecibido,
+      slot.etiqueta
+    );
+
+    if (!parseada) {
       return {
-        respuesta: `Cantidad no válida.\n\n${construirSolicitudCantidad(productoNombre, producto?.unidad ?? "pieza")}`,
+        respuesta: construirErrorCantidadGuiada(slot.etiqueta, indice),
         estadoNuevo: "PEDIDO_GUIADO_CANTIDAD",
         carrito: input.carrito,
       };
     }
 
-    const productos = await this.listarProductos();
-    const producto = productos.find((item) => item.id === productoId);
-    const unidad = producto?.unidad === "kg" ? "kg" : "pieza";
-    const unidadTexto = unidad === "kg" ? "kg" : "pza";
+    const linea = await this.crearLineaDesdeCantidadGuiada(
+      input.cliente,
+      input.carrito,
+      slot,
+      parseada
+    );
 
-    const carrito: CarritoConversacion = {
+    if ("error" in linea) {
+      return {
+        respuesta: `${linea.error}\n\n${construirPreguntaCantidadGuiada(
+          slot.etiqueta,
+          indice === 0
+        )}`,
+        estadoNuevo: "PEDIDO_GUIADO_CANTIDAD",
+        carrito: input.carrito,
+      };
+    }
+
+    const especiePreferida =
+      input.carrito.especiePreferida ??
+      input.carrito.contextoGuiado?.especiePreferida;
+
+    const carritoConLinea: CarritoConversacion = {
       ...input.carrito,
-      lineas: [
-        ...input.carrito.lineas,
-        {
-          textoOriginal: `${cantidad} ${unidadTexto} ${productoNombre}`,
-          producto_id: productoId,
-          producto_nombre: productoNombre,
-          cantidad,
-          unidad,
-        },
-      ],
-      contextoGuiado: null,
+      lineas: [...input.carrito.lineas, linea],
+      especiePreferida,
       totalEstimado: undefined,
     };
 
-    const resumen = construirResumenCarrito(carrito.lineas, carrito.observaciones);
+    const slotsGuiado = input.carrito.contextoGuiado?.slotsGuiado;
+    const siguienteIndice = indice + 1;
+
+    if (siguienteIndice < cola.length) {
+      const siguiente = cola[siguienteIndice];
+      return {
+        respuesta: construirPreguntaCantidadGuiada(siguiente.etiqueta, false),
+        estadoNuevo: "PEDIDO_GUIADO_CANTIDAD",
+        carrito: {
+          ...carritoConLinea,
+          contextoGuiado: {
+            slotsGuiado,
+            especiePreferida,
+            colaCantidadGuiada: cola.map((slot) => ({ ...slot })),
+            indiceCantidadGuiada: siguienteIndice,
+            productoNombre: siguiente.etiqueta,
+            textoPedido: siguiente.textoPedido,
+            productoId: siguiente.productoId,
+          },
+        },
+      };
+    }
+
+    // Todos los productos seleccionados ya tienen cantidad → resumen intermedio
+    const resumen = construirResumenPedidoGuiado(carritoConLinea.lineas);
 
     return {
-      respuesta: construirMensajePostAgregarCarrito(resumen),
+      respuesta: construirMensajePostPedidoGuiado(resumen),
       estadoNuevo: "PEDIDO_EN_CONSTRUCCION",
-      carrito,
+      carrito: {
+        ...carritoConLinea,
+        modo: "guiado",
+        contextoGuiado: slotsGuiado?.length
+          ? { slotsGuiado, especiePreferida }
+          : null,
+      },
+    };
+  }
+
+  private async crearLineaDesdeCantidadGuiada(
+    cliente: ClienteResuelto,
+    carrito: CarritoConversacion,
+    slot: ProductoGuiadoSlot,
+    parseada: import("@/lib/whatsapp/pedido-guiado-cantidad").CantidadGuiadaParseada
+  ): Promise<LineaCarrito | { error: string }> {
+    if (slot.textoPedido && !slot.productoId) {
+      const nombre = slot.etiqueta.trim();
+      const cantidadDisplay =
+        parseada.cantidadTexto ?? String(parseada.cantidad);
+
+      return {
+        textoOriginal: `${cantidadDisplay} de ${nombre}`,
+        producto_id: PRODUCTO_LINEA_LIBRE_ID,
+        producto_nombre: nombre,
+        cantidad: parseada.cantidad,
+        unidad: parseada.unidad,
+        cantidadTexto: parseada.cantidadTexto,
+      };
+    }
+
+    const productos = await this.listarProductos();
+    const producto = slot.productoId
+      ? productos.find((item) => item.id === slot.productoId)
+      : undefined;
+
+    if (slot.productoId && !producto) {
+      return { error: "No encontré ese producto en el catálogo." };
+    }
+
+    const nombre = slot.etiqueta || producto?.nombre || "producto";
+    const textoOriginal = parseada.textoOriginal.includes(nombre)
+      ? parseada.textoOriginal
+      : `${parseada.cantidadTexto ?? parseada.cantidad} de ${nombre}`;
+
+    return {
+      textoOriginal,
+      producto_id: slot.productoId ?? nombre,
+      producto_nombre: nombre,
+      cantidad: parseada.cantidad,
+      unidad: parseada.unidad,
+      cantidadTexto: parseada.cantidadTexto,
     };
   }
 
@@ -324,26 +560,75 @@ export class PedidoService {
     mensajeRecibido: string;
     cliente: ClienteResuelto;
     carrito: CarritoConversacion;
-  }): Promise<
+  }  ): Promise<
     | { tipo: "turno"; resultado: ResultadoTurnoConversacion }
     | { tipo: "listo"; carrito: CarritoConversacion }
     | { tipo: "listo_libre"; carrito: CarritoConversacion }
+    | { tipo: "confirmar"; carrito: CarritoConversacion }
   > {
     const { mensajeRecibido, cliente, carrito } = input;
 
-    if (esOpcionMenuPrincipal(mensajeRecibido) === "2") {
-      const productos = await this.listarProductos();
+    if (
+      carrito.modo !== "libre" &&
+      carrito.lineas.length === 0 &&
+      esOpcionMenuPrincipal(mensajeRecibido) === "2"
+    ) {
       return {
         tipo: "turno",
-        resultado: {
-          respuesta: construirMenuCategorias(this.categoriasOrdenadas(productos)),
-          estadoNuevo: "PEDIDO_GUIADO_CATEGORIA",
-          carrito: { ...carrito, modo: "guiado", contextoGuiado: {} },
-        },
+        resultado: await this.iniciarPedidoGuiado(cliente, carrito),
       };
     }
 
+    if (
+      carrito.modo === "guiado" &&
+      carrito.lineas.length > 0 &&
+      carrito.contextoGuiado?.slotsGuiado?.length
+    ) {
+      const opcion = esOpcionConfirmacionPedido(mensajeRecibido);
+      if (opcion === "confirmar") {
+        return { tipo: "confirmar", carrito };
+      }
+      if (opcion === "reiniciar") {
+        return {
+          tipo: "turno",
+          resultado: await this.iniciarPedidoGuiado(cliente, carritoVacio()),
+        };
+      }
+      if (opcion === "seguir") {
+        const especie =
+          carrito.especiePreferida ??
+          carrito.contextoGuiado.especiePreferida ??
+          "Cerdo";
+        const productos = await this.listarProductos();
+
+        return {
+          tipo: "turno",
+          resultado: {
+            respuesta: construirMenuProductosGuiados(
+              especie,
+              productosMenuDesdeSlots(
+                carrito.contextoGuiado.slotsGuiado,
+                productos
+              )
+            ),
+            estadoNuevo: "PEDIDO_GUIADO_PRODUCTO",
+            carrito: {
+              ...carrito,
+              contextoDisambiguacion: null,
+            },
+          },
+        };
+      }
+    }
+
     if (esClienteIndicaListo(mensajeRecibido)) {
+      if (carrito.contextoDisambiguacion) {
+        return {
+          tipo: "turno",
+          resultado: this.responderInformacionPendiente(carrito),
+        };
+      }
+
       if (carrito.lineas.length > 0) {
         return { tipo: "listo", carrito };
       }
@@ -351,6 +636,51 @@ export class PedidoService {
         return { tipo: "listo_libre", carrito };
       }
       return { tipo: "listo", carrito };
+    }
+
+    if (esClienteDeseaSeguirAgregando(mensajeRecibido)) {
+      if (
+        carrito.modo === "guiado" &&
+        carrito.contextoGuiado?.slotsGuiado?.length
+      ) {
+        const especie =
+          carrito.especiePreferida ??
+          carrito.contextoGuiado.especiePreferida ??
+          "Cerdo";
+        const productos = await this.listarProductos();
+
+        return {
+          tipo: "turno",
+          resultado: {
+            respuesta: construirMenuProductosGuiados(
+              especie,
+              productosMenuDesdeSlots(
+                carrito.contextoGuiado.slotsGuiado,
+                productos
+              )
+            ),
+            estadoNuevo: "PEDIDO_GUIADO_PRODUCTO",
+            carrito: {
+              ...carrito,
+              contextoDisambiguacion: null,
+            },
+          },
+        };
+      }
+
+      return {
+        tipo: "turno",
+        resultado: {
+          respuesta: construirInstruccionAgregarMas(),
+          estadoNuevo: "PEDIDO_EN_CONSTRUCCION",
+          carrito: {
+            ...carrito,
+            modo: "libre",
+            contextoGuiado: null,
+            contextoDisambiguacion: null,
+          },
+        },
+      };
     }
 
     const eliminacion = await this.intentarEliminarDelCarrito(
@@ -361,32 +691,45 @@ export class PedidoService {
       return { tipo: "turno", resultado: eliminacion };
     }
 
+    const correccion = await this.intentarCorregirDelCarrito(
+      cliente,
+      carrito,
+      mensajeRecibido
+    );
+    if (correccion) {
+      return { tipo: "turno", resultado: correccion };
+    }
+
+    const resueltoDisambiguacion = await this.procesarDisambiguacionPendiente(
+      cliente,
+      carrito,
+      mensajeRecibido
+    );
+    if (resueltoDisambiguacion) {
+      return { tipo: "turno", resultado: resueltoDisambiguacion };
+    }
+
     const agregado = await this.agregarTextoAlCarrito(cliente, carrito, mensajeRecibido);
 
     if (!agregado.ok) {
       return {
         tipo: "turno",
         resultado: {
-          respuesta: `${agregado.error}\n\nEscriba otro producto o *listo* para confirmar.`,
+          respuesta: `${agregado.error}\n\nEscriba su pedido de nuevo.`,
           estadoNuevo: "PEDIDO_EN_CONSTRUCCION",
           carrito,
         },
       };
     }
 
-    const resumen = construirResumenCarrito(
-      agregado.carrito.lineas,
-      agregado.carrito.observaciones
-    );
+    if (agregado.carrito.contextoDisambiguacion) {
+      return {
+        tipo: "turno",
+        resultado: this.responderInformacionPendiente(agregado.carrito),
+      };
+    }
 
-    return {
-      tipo: "turno",
-      resultado: {
-        respuesta: construirMensajePostAgregarCarrito(resumen),
-        estadoNuevo: "PEDIDO_EN_CONSTRUCCION",
-        carrito: agregado.carrito,
-      },
-    };
+    return { tipo: "listo", carrito: agregado.carrito };
   }
 
   async finalizarPedidoLibre(
@@ -458,6 +801,312 @@ export class PedidoService {
     };
   }
 
+  async intentarCorregirDelCarrito(
+    cliente: ClienteResuelto,
+    carrito: CarritoConversacion,
+    mensaje: string
+  ): Promise<ResultadoTurnoConversacion | null> {
+    const solicitud = parsearSolicitudCorreccion(mensaje);
+    if (!solicitud) return null;
+
+    const productosMenu = await this.listarProductos();
+    const catalogo = await this.catalogoDesdeProductos(productosMenu);
+
+    let textoInterpretar =
+      solicitud.tipo === "reemplazar"
+        ? solicitud.textoNuevo
+        : solicitud.textoNuevo;
+
+    if (solicitud.tipo === "aclarar") {
+      const lineaObjetivo = carrito.lineas.at(-1);
+      if (!lineaObjetivo) {
+        return {
+          respuesta:
+            "No encontré en su pedido el producto que desea aclarar.",
+          estadoNuevo: "PEDIDO_EN_CONSTRUCCION",
+          carrito,
+        };
+      }
+
+      textoInterpretar = combinarLineaConAclaracion(
+        lineaObjetivo.textoOriginal,
+        solicitud.textoNuevo
+      );
+    }
+
+    if (carrito.especiePreferida) {
+      textoInterpretar = aplicarEspeciePreferidaAlMensaje(
+        textoInterpretar,
+        carrito.especiePreferida
+      );
+    }
+
+    const interpretacion = await this.interpretarTexto(
+      textoInterpretar,
+      productosMenu
+    );
+    if (interpretacion.tipo !== "pedido" || interpretacion.lineas.length === 0) {
+      return {
+        respuesta:
+          "No pude interpretar la corrección. Intente de nuevo, por ejemplo: Corrige la molida, son 300 pesos.",
+        estadoNuevo: "PEDIDO_EN_CONSTRUCCION",
+        carrito,
+      };
+    }
+
+    const nombres = new Map(
+      productosMenu.map((producto) => [producto.id, producto.nombre])
+    );
+    const lineaNueva = lineaCarritoDesdeInterpretada(
+      interpretacion.lineas[0],
+      interpretacion.lineas[0].nombreMostrar ??
+        nombres.get(interpretacion.lineas[0].producto_id) ??
+        interpretacion.lineas[0].textoOriginal
+    );
+
+    const resultado = aplicarCorreccionCarrito({
+      carrito,
+      solicitud,
+      lineaNueva,
+      productos: catalogo,
+    });
+
+    if (!resultado.ok) {
+      return {
+        respuesta: `${resultado.error}\n\nEscriba otro producto o continúe su pedido.`,
+        estadoNuevo: "PEDIDO_EN_CONSTRUCCION",
+        carrito,
+      };
+    }
+
+    let carritoActualizado = resultado.carrito;
+    if (interpretacion.disambiguacion) {
+      carritoActualizado = {
+        ...carritoActualizado,
+        contextoDisambiguacion: interpretacion.disambiguacion,
+      };
+    }
+
+    const resumen = construirResumenCarrito(
+      carritoActualizado.lineas,
+      carritoActualizado.observaciones
+    );
+
+    const respuestaBase = construirMensajePostCorregirCarrito(
+      resultado.detalleCorregido,
+      resumen
+    );
+    const respuesta = interpretacion.aclaracion
+      ? `${respuestaBase}\n\n${interpretacion.aclaracion}`
+      : respuestaBase;
+
+    return {
+      respuesta,
+      estadoNuevo: "PEDIDO_EN_CONSTRUCCION",
+      carrito: carritoActualizado,
+    };
+  }
+
+  private async iniciarPedidoGuiado(
+    _cliente: ClienteResuelto,
+    carrito: CarritoConversacion
+  ): Promise<ResultadoTurnoConversacion> {
+    return {
+      respuesta: construirMenuEspecie(),
+      estadoNuevo: "PEDIDO_GUIADO_ESPECIE",
+      carrito: {
+        ...carritoVacio(),
+        modo: "guiado",
+        contextoGuiado: {},
+      },
+    };
+  }
+
+  private async mostrarProductosGuiados(
+    cliente: ClienteResuelto,
+    carrito: CarritoConversacion,
+    especie: "Res" | "Cerdo"
+  ): Promise<ResultadoTurnoConversacion> {
+    const productos = await this.listarProductos();
+    const tipoCliente = await this.obtenerTipoClienteParaMenu(cliente.tipo_cliente_id);
+    const slots = construirSlotsPedidoGuiado(tipoCliente, productos, especie);
+
+    if (slots.length === 0) {
+      return {
+        respuesta: construirMenuCategorias(this.categoriasOrdenadas(productos)),
+        estadoNuevo: "PEDIDO_GUIADO_CATEGORIA",
+        carrito: {
+          ...carritoVacio(),
+          modo: "guiado",
+          especiePreferida: especie,
+          contextoGuiado: { especiePreferida: especie },
+        },
+      };
+    }
+
+    return {
+      respuesta: construirMenuProductosGuiados(
+        especie,
+        productosMenuDesdeSlots(slots, productos)
+      ),
+      estadoNuevo: "PEDIDO_GUIADO_PRODUCTO",
+      carrito: {
+        ...carritoVacio(),
+        lineas: carrito.lineas,
+        modo: "guiado",
+        especiePreferida: especie,
+        contextoGuiado: { slotsGuiado: slots, especiePreferida: especie },
+      },
+    };
+  }
+
+  private async procesarProductoGuiado(
+    mensajeRecibido: string,
+    carrito: CarritoConversacion
+  ): Promise<ResultadoTurnoConversacion> {
+    const slots = carrito.contextoGuiado?.slotsGuiado ?? [];
+    const productos = await this.listarProductos();
+    const especie =
+      carrito.especiePreferida ?? carrito.contextoGuiado?.especiePreferida ?? "Cerdo";
+    const selecciones = parsearSeleccionesMultiples(
+      mensajeRecibido,
+      slots.length
+    );
+
+    if (!selecciones) {
+      const textoLibre = mensajeRecibido.trim();
+      if (validarTextoLibrePedidoGuiado(textoLibre, productos)) {
+        const agregadoDirecto = this.intentarAgregarTextoLibreGuiadoConCantidad(
+          carrito,
+          textoLibre
+        );
+        if (agregadoDirecto) return agregadoDirecto;
+
+        return this.iniciarCapturaCantidadesGuiadas(carrito, [
+          construirSlotTextoLibrePedidoGuiado(textoLibre),
+        ]);
+      }
+
+      return {
+        respuesta: `${construirMensajeProductoLibreNoEncontrado()}\n\n${construirMenuProductosGuiados(
+          especie,
+          productosMenuDesdeSlots(slots, productos)
+        )}`,
+        estadoNuevo: "PEDIDO_GUIADO_PRODUCTO",
+        carrito,
+      };
+    }
+
+    const cola = selecciones.map((indice) => slots[indice - 1]);
+    return this.iniciarCapturaCantidadesGuiadas(carrito, cola);
+  }
+
+  private intentarAgregarTextoLibreGuiadoConCantidad(
+    carrito: CarritoConversacion,
+    textoLibre: string
+  ): ResultadoTurnoConversacion | null {
+    const limpio = limpiarPrefijoPedido(textoLibre.trim());
+    const separado = separarCantidadInicial(limpio);
+    if (!separado?.resto?.trim()) return null;
+
+    const parseada =
+      parsearCantidadPedidoGuiado(textoLibre, separado.resto) ?? {
+        cantidad: separado.cantidad,
+        unidad: separado.unidad ?? "pieza",
+        cantidadTexto: separado.cantidadTexto,
+        textoOriginal: textoLibre.trim(),
+      };
+
+    const linea: LineaCarrito = {
+      textoOriginal: textoLibre.trim(),
+      producto_id: PRODUCTO_LINEA_LIBRE_ID,
+      producto_nombre: separado.resto.trim(),
+      cantidad: parseada.cantidad,
+      unidad: parseada.unidad,
+      cantidadTexto: parseada.cantidadTexto,
+    };
+
+    const especiePreferida =
+      carrito.especiePreferida ?? carrito.contextoGuiado?.especiePreferida;
+    const slotsGuiado = carrito.contextoGuiado?.slotsGuiado;
+
+    const carritoConLinea: CarritoConversacion = {
+      ...carrito,
+      lineas: [...carrito.lineas, linea],
+      especiePreferida,
+      totalEstimado: undefined,
+    };
+
+    const resumen = construirResumenPedidoGuiado(carritoConLinea.lineas);
+
+    return {
+      respuesta: construirMensajePostPedidoGuiado(resumen),
+      estadoNuevo: "PEDIDO_EN_CONSTRUCCION",
+      carrito: {
+        ...carritoConLinea,
+        modo: carrito.modo ?? "guiado",
+        contextoGuiado: slotsGuiado?.length
+          ? { slotsGuiado, especiePreferida }
+          : carrito.contextoGuiado,
+      },
+    };
+  }
+
+  private iniciarCapturaCantidadesGuiadas(
+    carrito: CarritoConversacion,
+    cola: ProductoGuiadoSlot[]
+  ): ResultadoTurnoConversacion {
+    const primera = cola[0];
+    const confirmacion =
+      cola.length > 1
+        ? `${construirConfirmacionSeleccionGuiada(
+            cola.map((slot) => slot.etiqueta)
+          )}\n\n`
+        : "";
+    const pregunta = construirPreguntaCantidadGuiada(primera.etiqueta, true);
+
+    return {
+      respuesta: `${confirmacion}${pregunta}`,
+      estadoNuevo: "PEDIDO_GUIADO_CANTIDAD",
+      carrito: {
+        ...carrito,
+        contextoGuiado: {
+          slotsGuiado: carrito.contextoGuiado?.slotsGuiado,
+          especiePreferida: carrito.contextoGuiado?.especiePreferida,
+          colaCantidadGuiada: cola.map((slot) => ({ ...slot })),
+          indiceCantidadGuiada: 0,
+          productoNombre: primera.etiqueta,
+          textoPedido: primera.textoPedido,
+          productoId: primera.productoId,
+        },
+      },
+    };
+  }
+
+  private seleccionarSlotGuiado(
+    carrito: CarritoConversacion,
+    slot: ProductoGuiadoSlot,
+    _productos: ProductoMenu[]
+  ): ResultadoTurnoConversacion {
+    return this.iniciarCapturaCantidadesGuiadas(carrito, [slot]);
+  }
+
+  private async obtenerTipoClienteParaMenu(
+    tipoClienteId: string
+  ): Promise<{ codigo: string | null; nombre: string | null }> {
+    const { data, error } = await this.db
+      .from("tipos_cliente")
+      .select("codigo, nombre")
+      .eq("id", tipoClienteId)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    return {
+      codigo: (data?.codigo as string | undefined) ?? null,
+      nombre: (data?.nombre as string | undefined) ?? null,
+    };
+  }
+
   async intentarEliminarDelCarrito(
     carrito: CarritoConversacion,
     mensaje: string
@@ -518,8 +1167,107 @@ export class PedidoService {
       unidad: producto.unidad,
       precio_kg: 0,
       activo: true,
+      categoria: producto.categoria,
       aliases: aliasesPorProducto.get(producto.id) ?? [],
     }));
+  }
+
+  responderInformacionPendiente(
+    carrito: CarritoConversacion
+  ): ResultadoTurnoConversacion {
+    const pendiente = carrito.contextoDisambiguacion;
+    if (!pendiente) {
+      throw new Error("No hay información pendiente en el carrito.");
+    }
+
+    const resumen = construirResumenCarrito(
+      carrito.lineas,
+      carrito.observaciones
+    );
+
+    return {
+      respuesta: construirSolicitudInformacionPendiente(resumen, pendiente),
+      estadoNuevo: "PEDIDO_EN_CONSTRUCCION",
+      carrito,
+    };
+  }
+
+  async procesarDisambiguacionPendiente(
+    cliente: ClienteResuelto,
+    carrito: CarritoConversacion,
+    mensaje: string
+  ): Promise<ResultadoTurnoConversacion | null> {
+    const pendiente = carrito.contextoDisambiguacion;
+    if (!pendiente) return null;
+
+    const productos = await this.listarProductos();
+    const unidadPorProductoId = new Map(
+      productos.map((producto) => [
+        producto.id,
+        producto.unidad === "kg" ? ("kg" as const) : ("pieza" as const),
+      ])
+    );
+    const resultado = continuarDisambiguacionComercial({
+      mensaje,
+      pendiente,
+      unidadPorProductoId,
+    });
+
+    const resumenBase = construirResumenCarrito(
+      carrito.lineas,
+      carrito.observaciones
+    );
+
+    if (!resultado.ok) {
+      return {
+        respuesta: [
+          "Opción no válida.",
+          "",
+          construirSolicitudInformacionPendiente(resumenBase, pendiente),
+        ].join("\n"),
+        estadoNuevo: "PEDIDO_EN_CONSTRUCCION",
+        carrito,
+      };
+    }
+
+    const lineaResuelta = lineaCarritoDesdeInterpretada(
+      resultado.linea,
+      resultado.productoNombre
+    );
+
+    const carritoActualizado: CarritoConversacion = {
+      ...carrito,
+      lineas: reemplazarLineaPendienteDisambiguacion(
+        carrito.lineas,
+        pendiente.segmento,
+        lineaResuelta
+      ),
+      contextoDisambiguacion: resultado.siguiente,
+      totalEstimado: undefined,
+    };
+
+    const resumen = construirResumenCarrito(
+      carritoActualizado.lineas,
+      carritoActualizado.observaciones
+    );
+
+    if (resultado.siguiente) {
+      return {
+        respuesta: construirSolicitudInformacionPendiente(
+          resumen,
+          resultado.siguiente
+        ),
+        estadoNuevo: "PEDIDO_EN_CONSTRUCCION",
+        carrito: carritoActualizado,
+      };
+    }
+
+    return {
+      respuesta: "",
+      estadoNuevo: "PEDIDO_EN_CONSTRUCCION",
+      carrito: carritoActualizado,
+      delegarConfirmacion: true,
+    };
   }
 
   private categoriasOrdenadas(productos: ProductoMenu[]): string[] {

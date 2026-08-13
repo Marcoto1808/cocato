@@ -49,7 +49,7 @@ export class WhatsAppService {
         from: mensaje.from,
         waMessageId: mensaje.waMessageId,
         texto: mensaje.texto,
-        phoneNumberId: config.phone_number_id ?? mensaje.phoneNumberId ?? null,
+        phoneNumberId: mensaje.phoneNumberId ?? config.phone_number_id ?? null,
       });
 
       procesados += 1;
@@ -93,6 +93,9 @@ export class WhatsAppService {
       mensajeRecibido: input.texto,
       waTelefono: input.from,
       estadoComercialActual: conversacion.estado_comercial ?? null,
+      ultimoMensajeEnPrevio:
+        (conversacion as { ultimo_mensaje_en?: string | null }).ultimo_mensaje_en ??
+        null,
       acceso,
     });
 

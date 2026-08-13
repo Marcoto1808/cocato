@@ -9,9 +9,11 @@ import {
   separarCantidadInicial,
 } from "@/lib/interpretacion/resolver-producto";
 import type { CarritoConversacion, LineaCarrito } from "@/lib/whatsapp/conversation-cart";
+import { construirMensajePostAgregarCarrito } from "@/lib/whatsapp/conversation-states";
 
 export type SolicitudEliminacion =
   | { tipo: "vaciar" }
+  | { tipo: "ultima_linea" }
   | { tipo: "parcial"; cantidad: number; cantidadTexto: string; productoTexto: string }
   | { tipo: "linea_completa"; productoTexto: string };
 
@@ -20,9 +22,59 @@ export type ResultadoEliminacionCarrito =
   | { ok: false; error: string };
 
 const VERBO_ELIMINAR =
-  /^(quitar|quita|eliminar|elimina|borrar|borra|cancelar|remueve|sacar)\s+(.+)$/i;
+  /^(?:quitar|quita|eliminar|elimina|borrar|borra|cancelar|remueve|remover|sacar|no quiero|mejor quita|mejor quitar)\s+(.+)$/i;
 
-const FRASES_REINICIAR = ["empezar de nuevo", "empezar otra vez"];
+export function limpiarProductoEliminacion(texto: string): string {
+  let limpio = texto.trim();
+  const prefijos =
+    /^(?:la|las|el|los|del|de la|de el|de los|de|un|una|uno)\s+/i;
+
+  while (prefijos.test(limpio)) {
+    limpio = limpio.replace(prefijos, "").trim();
+  }
+
+  return limpio;
+}
+
+function parsearRestoEliminacion(resto: string): SolicitudEliminacion | null {
+  const limpio = resto.trim();
+  if (!limpio) return null;
+
+  if (limpio === "todo") {
+    return { tipo: "vaciar" };
+  }
+
+  if (
+    /^(?:el|la|los|las)?\s*ultim[oa](?:\s+producto)?$/i.test(limpio) ||
+    limpio === "ultimo producto"
+  ) {
+    return { tipo: "ultima_linea" };
+  }
+
+  const importe = limpio.match(
+    /^(?:(?:los|las)\s+)?(\d+(?:[.,]\d+)?)\s*pesos?\s+(?:de\s+)?(.+)$/i
+  );
+  if (importe) {
+    const productoTexto = limpiarProductoEliminacion(importe[2]);
+    if (!productoTexto) return null;
+    return { tipo: "linea_completa", productoTexto };
+  }
+
+  const separado = separarCantidadInicial(limpio);
+  if (separado) {
+    return {
+      tipo: "parcial",
+      cantidad: separado.cantidad,
+      cantidadTexto: separado.cantidadTexto,
+      productoTexto: limpiarProductoEliminacion(separado.resto),
+    };
+  }
+
+  return {
+    tipo: "linea_completa",
+    productoTexto: limpiarProductoEliminacion(limpio),
+  };
+}
 
 function normalizarEntrada(texto: string): string {
   return normalizarTextoPedido(texto.trim().replace(/[.!?]+$/, ""));
@@ -38,31 +90,10 @@ export function parsearSolicitudEliminacion(
   const normalizado = normalizarEntrada(mensaje);
   if (!normalizado) return null;
 
-  if (FRASES_REINICIAR.some((frase) => normalizado === frase)) {
-    return { tipo: "vaciar" };
-  }
-
   const verboMatch = normalizado.match(VERBO_ELIMINAR);
   if (!verboMatch) return null;
 
-  const resto = verboMatch[2].trim();
-  if (!resto) return null;
-
-  if (resto === "todo") {
-    return { tipo: "vaciar" };
-  }
-
-  const separado = separarCantidadInicial(resto);
-  if (separado) {
-    return {
-      tipo: "parcial",
-      cantidad: separado.cantidad,
-      cantidadTexto: separado.cantidadTexto,
-      productoTexto: separado.resto,
-    };
-  }
-
-  return { tipo: "linea_completa", productoTexto: resto };
+  return parsearRestoEliminacion(verboMatch[1]);
 }
 
 function formatearDetalleEliminacion(
@@ -140,9 +171,35 @@ export function aplicarEliminacionCarrito(
     };
   }
 
+  if (solicitud.tipo === "ultima_linea") {
+    const linea = carrito.lineas.at(-1);
+    if (!linea) {
+      return {
+        ok: false,
+        error: "Su pedido está vacío.",
+      };
+    }
+
+    const detalleEliminado = formatearDetalleEliminacion(
+      linea.cantidad,
+      linea.producto_nombre,
+      linea.unidad
+    );
+
+    return {
+      ok: true,
+      carrito: {
+        ...carrito,
+        lineas: carrito.lineas.slice(0, -1),
+        totalEstimado: undefined,
+      },
+      detalleEliminado,
+    };
+  }
+
   const linea = encontrarLineaEnCarrito(
     carrito.lineas,
-    solicitud.productoTexto,
+    limpiarProductoEliminacion(solicitud.productoTexto),
     productos
   );
 
@@ -212,12 +269,6 @@ export function construirMensajePostEliminarCarrito(
   return [
     encabezado,
     "",
-    "Hasta el momento lleva:",
-    "",
-    resumen,
-    "",
-    "¿Desea agregar algo más?",
-    "",
-    "Escriba otro producto o escriba *listo* para confirmar.",
+    construirMensajePostAgregarCarrito(resumen),
   ].join("\n");
 }

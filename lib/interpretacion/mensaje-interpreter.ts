@@ -1,10 +1,13 @@
+import type { DisambiguacionPendiente } from "@/lib/interpretacion/disambiguacion";
+
 export type InterpretacionMensaje =
   | {
       tipo: "pedido";
       lineas: LineaInterpretada[];
       observaciones?: string[];
-    }
-  | {
+      aclaracion?: string;
+      disambiguacion?: DisambiguacionPendiente;
+    }  | {
       tipo: "no_interpretado";
       motivo: string;
     }
@@ -19,6 +22,8 @@ export type LineaInterpretada = {
   unidad: "kg" | "pieza";
   textoOriginal: string;
   cantidadTexto?: string;
+  /** Nombre a mostrar cuando no hay producto de catálogo o como override. */
+  nombreMostrar?: string;
 };
 
 export type ProductoCatalogo = {
@@ -27,6 +32,7 @@ export type ProductoCatalogo = {
   unidad: string;
   precio_kg: number;
   activo: boolean;
+  categoria?: string;
   aliases?: string[];
 };
 

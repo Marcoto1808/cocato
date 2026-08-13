@@ -1,5 +1,22 @@
 import { normalizarLenguajeComercial } from "./lenguaje-comercial.ts";
 
+function esCantidadImporte(cantidadTexto: string | null | undefined): boolean {
+  if (!cantidadTexto?.trim()) return false;
+  const valor = cantidadTexto.trim().toLowerCase();
+  return valor.includes("pesos") || valor.includes("$");
+}
+
+function importeFijoDesdeCantidad(
+  cantidadTexto: string | null | undefined
+): number | null {
+  if (!esCantidadImporte(cantidadTexto)) return null;
+  const match = cantidadTexto!.trim().match(/(\d[\d,]*(?:\.\d+)?)/);
+  if (!match) return null;
+  const valor = Number(match[1].replace(/,/g, ""));
+  if (!Number.isFinite(valor) || valor <= 0) return null;
+  return valor;
+}
+
 export type SegmentoParseado = {
   cantidad: number;
   cantidadTexto: string;
@@ -105,6 +122,16 @@ export function normalizarExpresionesCantidad(texto: string): string {
   t = t.replace(/\bcuarto\s+de\s+(?:kilos?|kg)\b/gi, "0.25 kg");
 
   t = t.replace(
+    /\b(un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+cuartos?\s+de\s+(?!kilos?\b|kg\b)/gi,
+    (_, palabra: string) => {
+      const base = numeroDesdeToken(palabra) ?? 0;
+      return `${base * 0.25} kg de `;
+    }
+  );
+
+  t = t.replace(/\bcuarto\s+de\s+(?!kilos?\b|kg\b)/gi, "0.25 kg de ");
+
+  t = t.replace(
     /\b(\d+(?:[.,]\d+)?|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(?:kilos?|kg)\s+y\s+cuarto\b/gi,
     (_, token: string) => {
       const base = numeroDesdeToken(token) ?? 0;
@@ -112,7 +139,7 @@ export function normalizarExpresionesCantidad(texto: string): string {
     }
   );
 
-  t = t.replace(/\b(?:kilos?|kg)\s+y\s+cuarto\b/gi, "1.25 kg");
+  t = t.replace(/\b(?:kilos?|kg)\s+y\s+cuarto(\s+de\s+)?/gi, "1.25 kg$1");
 
   t = t.replace(
     /\b(\d+(?:[.,]\d+)?|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(?:kilos?|kg)\s+y\s+medio\b/gi,
@@ -122,7 +149,7 @@ export function normalizarExpresionesCantidad(texto: string): string {
     }
   );
 
-  t = t.replace(/\b(?:kilos?|kg)\s+y\s+medio\b/gi, "1.5 kg");
+  t = t.replace(/\b(?:kilos?|kg)\s+y\s+medio(\s+de\s+)?/gi, "1.5 kg$1");
 
   t = t.replace(/\b(?:medio|media)\s+(?:kilos?|kg)\b/gi, "0.5 kg");
 
@@ -133,17 +160,97 @@ export function normalizarExpresionesCantidad(texto: string): string {
   return t.replace(/\s+/g, " ").trim();
 }
 
-export function segmentarMensajePedido(texto: string): string[] {
-  const normalizado = normalizarExpresionesCantidad(texto);
-  const protegido = normalizado.replace(
-    /(\d+|uno|una|un|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|veinte|capote|capotes)\s+y\s+(medio|media)/gi,
-    "$1 __Y_MEDIO__"
+const PALABRAS_CANTIDAD_SEGMENTO =
+  "un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|veinte|treinta|cuarenta|cincuenta";
+
+const CONECTORES_SEGMENTO =
+  /\s+(?:y|e|también|tambien|mas|más|ademas|además|plus|\+)\s+/gi;
+
+function protegerExpresionesCantidadSegmento(bloque: string): string {
+  return bloque
+    .replace(/\b(?:kilos?|kg)\s+y\s+medio\b/gi, "__KILO_Y_MEDIO__")
+    .replace(/\b(?:kilos?|kg)\s+y\s+cuarto\b/gi, "__KILO_Y_CUARTO__")
+    .replace(
+      /(\d+|uno|una|un|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|veinte|capote|capotes)\s+y\s+(medio|media)/gi,
+      "$1 __Y_MEDIO__"
+    );
+}
+
+function restaurarExpresionesCantidadSegmento(texto: string): string {
+  return texto
+    .replace(/__KILO_Y_MEDIO__/gi, "kilos y medio")
+    .replace(/__KILO_Y_CUARTO__/gi, "kilos y cuarto")
+    .replace(/__Y_MEDIO__/gi, "y medio");
+}
+
+/** Separa cantidades pegadas al nombre: "3piernas4espaldillas" → "3 piernas 4 espaldillas". */
+export function desconcatenarCantidadesProductoSinEspacio(bloque: string): string {
+  const particulasPegadas =
+    /(?<=[\p{L}])(de|del|kilos?|kilo|kg|pesos?|piezas?|pz|pza)(?=[\p{L}])/giu;
+
+  let texto = bloque
+    .replace(/([\p{L}])(\d+(?=[\p{L}]))/gu, "$1 $2")
+    .replace(/(\d+(?:[.,]\d+)?)(?=[\p{L}])/gu, "$1 ");
+
+  for (let paso = 0; paso < 4; paso += 1) {
+    const siguiente = texto.replace(particulasPegadas, " $1 ");
+    if (siguiente === texto) break;
+    texto = siguiente;
+  }
+
+  texto = texto.replace(
+    /\b(\d+(?:[.,]\d+)?)\s+(?!de\b|pesos?\b|kg\b|kilos?\b|kilo\b|piezas?\b|pz\b|pza\b)([\p{L}])/giu,
+    (coincidencia, cantidad, inicioProducto) => {
+      const importe = Number(String(cantidad).replace(",", "."));
+      if (!Number.isFinite(importe) || importe < 20) return coincidencia;
+      return `${cantidad} de ${inicioProducto}`;
+    }
   );
 
-  return protegido
-    .split(/[\n,;]+|\s+y\s+/i)
-    .map((parte) => parte.replace(/__Y_MEDIO__/gi, "y medio").trim())
+  return texto.replace(/\s+/g, " ").trim();
+}
+
+function partirBloquePorNuevosProductos(bloque: string): string[] {
+  const bloqueNormalizado = desconcatenarCantidadesProductoSinEspacio(bloque);
+  const separador = new RegExp(
+    `(?<=\\S)\\s+(?=` +
+      `\\d+(?:[.,]\\d+)?(?:\\s+(?:pesos?|kg|kilos?|kilo|piezas?|pz|pza|de)\\b|\\s+(?!y\\s+(?:medio|media|cuarto)\\b)[\\p{L}])` +
+      `|` +
+      `\\b(?:${PALABRAS_CANTIDAD_SEGMENTO}|medio|media)\\b(?:\\s+(?:kilos?|kg|kilo|y\\s+medio|y\\s+cuarto|cuartos?\\s+de|pesos?|de)\\b|\\s+(?!y\\s+(?:medio|media|cuarto)\\b)[\\p{L}])` +
+      `)`,
+    "giu"
+  );
+
+  return bloqueNormalizado
+    .split(separador)
+    .map((parte) => parte.trim())
     .filter(Boolean);
+}
+
+function segmentarBloqueComercial(bloque: string): string[] {
+  const protegido = protegerExpresionesCantidadSegmento(bloque);
+  const porConectores = protegido.split(CONECTORES_SEGMENTO);
+  const segmentos: string[] = [];
+
+  for (const trozo of porConectores) {
+    const partes = partirBloquePorNuevosProductos(trozo);
+    for (const parte of partes) {
+      const limpio = restaurarExpresionesCantidadSegmento(parte).trim();
+      if (!limpio) continue;
+      segmentos.push(normalizarExpresionesCantidad(limpio));
+    }
+  }
+
+  return segmentos;
+}
+
+export function segmentarMensajePedido(texto: string): string[] {
+  const bloques = texto
+    .split(/[\n,;]+/)
+    .map((parte) => parte.trim())
+    .filter(Boolean);
+
+  return bloques.flatMap(segmentarBloqueComercial).filter(Boolean);
 }
 
 export function extraerObservaciones(texto: string): {
@@ -285,10 +392,12 @@ function parsearPatronNumerico(
   const producto = match[3]?.trim();
   if (!producto) return null;
 
+  const unidad = parsearUnidad(match[2]);
+
   return resultado(
     cantidad,
-    formatearCantidad(cantidad),
-    parsearUnidad(match[2]),
+    unidad ? `${formatearCantidad(cantidad)} kg` : formatearCantidad(cantidad),
+    unidad,
     producto,
     observaciones
   );
@@ -326,7 +435,7 @@ function parsearPatronPalabras(
 
     return {
       cantidad: base,
-      cantidadTexto: tokens[0],
+      cantidadTexto: unidad ? `${tokens[0]} kg` : tokens[0],
       producto,
       unidad,
     };
@@ -357,32 +466,251 @@ export function parsearSegmentoPedido(segmento: string): SegmentoParseado | null
   );
 }
 
-export function pluralizarNombreProducto(nombre: string, cantidad: number): string {
-  if (cantidad === 1) return nombre;
-  if (nombre.endsWith("s")) return nombre;
+const PALABRAS_SIN_PLURALIZAR = new Set([
+  "a",
+  "al",
+  "con",
+  "de",
+  "del",
+  "el",
+  "en",
+  "la",
+  "las",
+  "los",
+  "para",
+  "sin",
+  "y",
+]);
 
-  if (nombre.includes(" ")) {
-    return nombre
-      .split(" ")
-      .map((parte) => (parte.endsWith("s") ? parte : `${parte}s`))
-      .join(" ");
+function aplicarCasingOriginal(original: string, transformado: string): string {
+  if (!original || !transformado) return transformado;
+  if (original === original.toUpperCase()) return transformado.toUpperCase();
+  if (original[0] === original[0].toUpperCase()) {
+    return transformado.charAt(0).toUpperCase() + transformado.slice(1);
+  }
+  return transformado;
+}
+
+function singularizarPalabraDisplay(palabra: string): string {
+  const lower = palabra.toLowerCase();
+  if (lower.length <= 2 || /^\d/.test(lower)) return palabra;
+  if (!lower.endsWith("s") || lower.endsWith("ss")) return palabra;
+
+  let base: string;
+  if (lower.endsWith("es") && lower.length > 4) {
+    if (lower.endsWith("bles")) base = lower.slice(0, -1);
+    else if (lower.endsWith("tes")) base = lower.slice(0, -1);
+    else if (lower.endsWith("ces")) base = lower.slice(0, -2) + "z";
+    else if (lower.endsWith("nes")) base = lower.slice(0, -1);
+    else base = lower.slice(0, -1);
+  } else {
+    base = lower.slice(0, -1);
   }
 
-  return `${nombre}s`;
+  return aplicarCasingOriginal(palabra, base);
+}
+
+function pluralizarPalabraDisplay(palabra: string): string {
+  const lower = palabra.toLowerCase();
+  if (lower.length <= 2 || /^\d/.test(lower)) return palabra;
+  if (lower.endsWith("s") && !lower.endsWith("ss")) return palabra;
+
+  const base = lower.endsWith("z") ? `${lower.slice(0, -1)}ces` : `${lower}s`;
+  return aplicarCasingOriginal(palabra, base);
+}
+
+function ajustarPalabraPorCantidad(palabra: string, cantidad: number): string {
+  if (PALABRAS_SIN_PLURALIZAR.has(palabra.toLowerCase())) return palabra;
+  return cantidad === 1
+    ? singularizarPalabraDisplay(palabra)
+    : pluralizarPalabraDisplay(palabra);
+}
+
+/** Ajusta singular/plural del nombre solo para presentación al cliente. */
+export function pluralizarNombreProducto(nombre: string, cantidad: number): string {
+  if (!Number.isFinite(cantidad) || cantidad <= 0) return nombre;
+
+  const cantidadReferencia = cantidad === 1 ? 1 : 2;
+  const partes = nombre.split(/\s+/).filter(Boolean);
+
+  return partes
+    .map((parte, indice) => {
+      const anterior =
+        indice > 0 ? partes[indice - 1].toLowerCase() : "";
+      if (PALABRAS_SIN_PLURALIZAR.has(parte.toLowerCase())) return parte;
+      if (PALABRAS_SIN_PLURALIZAR.has(anterior)) return parte;
+      return ajustarPalabraPorCantidad(parte, cantidadReferencia);
+    })
+    .join(" ");
+}
+
+export function extraerProductoTextoCliente(segmento: string): string {
+  const limpio = limpiarPrefijoPedido(segmento.trim()).replace(/[.!?]+$/, "");
+  const { resto } = extraerObservaciones(limpio);
+  if (!resto) return "";
+
+  const patrones = [
+    /^\$\s*(\d+(?:[.,]\d+)?)\s*(?:de\s+)?(.+)$/i,
+    /^(\d+(?:[.,]\d+)?)\s*pesos?\s+(?:de\s+)?(.+)$/i,
+    /^(\d+(?:[.,]\d+)?)(?:\s+y\s+(medio|media))?(?:\s+(?:kg|kilos?|kilo|pza|piezas?|pz)\b)?\s*(?:de\s+)?(.+)$/i,
+    /^(uno|una|un|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|veinte|treinta|cuarenta|cincuenta|medio|media)(?:\s+y\s+(medio|media))?(?:\s+(?:kg|kilos?|kilo|pza|piezas?|pz)\b)?\s*(?:de\s+)?(.+)$/i,
+  ];
+
+  for (const patron of patrones) {
+    const match = resto.match(patron);
+    const producto = match?.[match.length - 1]?.trim();
+    if (producto) return producto;
+  }
+
+  return resto.trim();
+}
+
+export function inferirUnidadExplicitaDesdeSegmento(
+  segmento: string
+): "kg" | "pieza" | null {
+  const limpio = normalizarTextoPedido(limpiarPrefijoPedido(segmento));
+  if (!limpio) return null;
+  if (/\b(pesos?|\$)\b/.test(limpio)) return null;
+  if (/\b(kg|kilos?|kilo)\b/.test(limpio)) return "kg";
+  if (/\b(piezas?|pz|pza|paquetes?|cajas?)\b/.test(limpio)) return "pieza";
+  return null;
+}
+
+export function segmentoEsImporte(segmento: string): boolean {
+  const limpio = normalizarTextoPedido(limpiarPrefijoPedido(segmento));
+  return (
+    /\b\d+(?:[.,]\d+)?\s*pesos?\b/.test(limpio) ||
+    /^\$\s*\d/.test(limpio) ||
+    /^\d+\s+de\s+/.test(limpio)
+  );
+}
+
+export function normalizarCantidadTextoParaDisplay(input: {
+  cantidad: number;
+  unidad: "kg" | "pieza";
+  cantidadTexto?: string | null;
+  segmento?: string;
+}): string {
+  const cantidadTexto = input.cantidadTexto?.trim();
+  const segmento = input.segmento?.trim() ?? "";
+
+  if (
+    (cantidadTexto && esCantidadImporte(cantidadTexto)) ||
+    segmentoEsImporte(segmento)
+  ) {
+    const importe =
+      importeFijoDesdeCantidad(cantidadTexto ?? segmento) ??
+      importeFijoDesdeCantidad(segmento);
+    if (importe != null) return `$${importe}`;
+    if (cantidadTexto) return cantidadTexto;
+  }
+
+  if (input.unidad === "kg") {
+    return `${formatearCantidad(input.cantidad)} kg`;
+  }
+
+  return cantidadTexto || formatearCantidad(input.cantidad);
+}
+
+type CantidadCapturadaEdge =
+  | { tipo: "numerica"; cantidad: number }
+  | { tipo: "importe"; importe: number; cantidad_texto: string };
+
+function parsearCantidadCapturaEdge(valor: string): CantidadCapturadaEdge | null {
+  const trimmed = valor.trim();
+  if (!trimmed) return null;
+
+  if (/^\d+(\.\d+)?$/.test(trimmed.replace(",", "."))) {
+    const cantidad = Number(trimmed.replace(",", "."));
+    if (Number.isFinite(cantidad) && cantidad > 0) {
+      return { tipo: "numerica", cantidad };
+    }
+    return null;
+  }
+
+  if (esCantidadImporte(trimmed)) {
+    const importe = importeFijoDesdeCantidad(trimmed);
+    if (importe !== null) {
+      return { tipo: "importe", importe, cantidad_texto: trimmed };
+    }
+  }
+
+  return null;
+}
+
+export function cantidadCapturadaDesdeLineaPedido(input: {
+  cantidad: number;
+  cantidadTexto?: string | null;
+  textoOriginal?: string | null;
+}): CantidadCapturadaEdge {
+  const cantidadTexto = input.cantidadTexto?.trim();
+  if (cantidadTexto) {
+    const parsed = parsearCantidadCapturaEdge(cantidadTexto);
+    if (parsed) return parsed;
+  }
+
+  const textoOriginal = input.textoOriginal?.trim() ?? "";
+  if (textoOriginal && segmentoEsImporte(textoOriginal)) {
+    const importe = importeFijoDesdeCantidad(textoOriginal);
+    if (importe != null) {
+      return { tipo: "importe", importe, cantidad_texto: `$${importe}` };
+    }
+  }
+
+  return { tipo: "numerica", cantidad: input.cantidad };
+}
+
+export function nombreProductoEnResumenDesdeLinea(input: {
+  textoOriginal?: string | null;
+  productoNombre: string;
+}): string {
+  const desdeTexto = input.textoOriginal?.trim()
+    ? extraerProductoTextoCliente(input.textoOriginal)
+    : "";
+  return desdeTexto || input.productoNombre;
 }
 
 export function formatearCantidadEnResumen(
   cantidad: number,
   unidad: "kg" | "pieza",
   productoNombre: string,
-  cantidadTexto?: string | null
+  cantidadTexto?: string | null,
+  textoOriginal?: string | null
 ): string {
-  if (unidad === "kg") {
-    const cantidadStr = cantidadTexto?.trim() || `${formatearCantidad(cantidad)} kg`;
-    return `• ${cantidadStr} ${productoNombre}`;
+  const segmento = textoOriginal?.trim() ?? "";
+  const cantidadDisplay = cantidadTexto?.trim() ?? "";
+
+  if (
+    (cantidadDisplay && esCantidadImporte(cantidadDisplay)) ||
+    segmentoEsImporte(segmento)
+  ) {
+    const importe =
+      importeFijoDesdeCantidad(cantidadDisplay || segmento) ??
+      importeFijoDesdeCantidad(segmento);
+    const monto =
+      importe != null
+        ? `$${importe}`
+        : cantidadDisplay || segmento;
+    const producto = nombreProductoEnResumenDesdeLinea({
+      textoOriginal: segmento,
+      productoNombre,
+    });
+    return `• ${monto} de ${producto}`;
   }
 
-  const nombre = pluralizarNombreProducto(productoNombre, cantidad);
-  const cantidadStr = cantidadTexto?.trim() || formatearCantidad(cantidad);
+  const producto = nombreProductoEnResumenDesdeLinea({
+    textoOriginal: segmento,
+    productoNombre,
+  });
+
+  if (unidad === "kg") {
+    const cantidadStr = cantidadDisplay.match(/\b(kg|kilo)/i)
+      ? cantidadDisplay
+      : `${formatearCantidad(cantidad)} kg`;
+    return `• ${cantidadStr} de ${producto}`;
+  }
+
+  const nombre = pluralizarNombreProducto(producto, cantidad);
+  const cantidadStr = cantidadDisplay || formatearCantidad(cantidad);
   return `• ${cantidadStr} ${nombre}`;
 }

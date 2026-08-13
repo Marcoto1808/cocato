@@ -10,6 +10,17 @@ import {
   nombreParaSaludo,
   type EstadoComercialConversacion,
 } from "../conversation/states.ts";
+import {
+  continuarPedidoRecuperado,
+  debeOfrecerRecuperacionPedido,
+  esComandoNuevoPedido,
+  esComandoVerPedido,
+  esOpcionRecuperacionPedido,
+  iniciarRecuperacionPedido,
+  reiniciarPedidoConversacion,
+  respuestaRecuperacionInvalida,
+  respuestaVerPedido,
+} from "../conversation/comandos-pedido.ts";
 import type {
   MotivoAccesoDenegado,
   ResultadoAutorizacionWhatsApp,
@@ -34,6 +45,7 @@ export type ConversationEngineInput = {
   mensajeRecibido: string;
   waTelefono: string;
   estadoComercialActual: string | null;
+  ultimoMensajeEnPrevio?: string | null;
   acceso: ResultadoAutorizacionWhatsApp;
 };
 
@@ -97,13 +109,56 @@ async function procesarClienteAutorizado(
   mensajeRecibido: string,
   estadoAnterior: EstadoComercialConversacion,
   cliente: ClienteResuelto,
-  carritoInicial: ResultadoTurnoConversacion["carrito"]
+  carritoInicial: ResultadoTurnoConversacion["carrito"],
+  ultimoMensajeEnPrevio?: string | null
 ): Promise<ResultadoTurnoConversacion> {
   const { pedidoService, confirmacionService, entregaService } =
     crearServicios(db);
 
   const nombre = nombreParaSaludo(cliente);
   const menu = construirMenuPrincipal(nombre);
+
+  if (esComandoNuevoPedido(mensajeRecibido)) {
+    return reiniciarPedidoConversacion(menu);
+  }
+
+  if (estadoAnterior === "RECUPERACION_PEDIDO") {
+    const opcion = esOpcionRecuperacionPedido(mensajeRecibido);
+    if (opcion === "nuevo") {
+      return reiniciarPedidoConversacion(menu);
+    }
+    if (opcion === "continuar") {
+      const continuado = continuarPedidoRecuperado(carritoInicial);
+      if (continuado) return continuado;
+    }
+    if (esComandoVerPedido(mensajeRecibido) && carritoInicial.recuperacionPedido) {
+      return respuestaVerPedido({
+        carrito: carritoInicial.recuperacionPedido.carritoGuardado,
+        estadoActual: "RECUPERACION_PEDIDO",
+      });
+    }
+    return respuestaRecuperacionInvalida(carritoInicial);
+  }
+
+  if (
+    debeOfrecerRecuperacionPedido({
+      estado: estadoAnterior,
+      carrito: carritoInicial,
+      ultimoMensajeEn: ultimoMensajeEnPrevio,
+    })
+  ) {
+    return iniciarRecuperacionPedido({
+      estado: estadoAnterior,
+      carrito: carritoInicial,
+    });
+  }
+
+  if (esComandoVerPedido(mensajeRecibido)) {
+    return respuestaVerPedido({
+      carrito: carritoInicial,
+      estadoActual: estadoAnterior,
+    });
+  }
 
   if (esVolverMenu(mensajeRecibido) || esCancelacion(mensajeRecibido)) {
     return {
@@ -131,6 +186,14 @@ async function procesarClienteAutorizado(
       menu,
     });
     return resolverDelegacionConfirmacion(confirmacionService, cliente, resultado);
+  }
+
+  if (estadoAnterior === "PEDIDO_GUIADO_ESPECIE") {
+    return pedidoService.procesarEspecieGuiada({
+      mensajeRecibido,
+      cliente,
+      carrito: carritoInicial,
+    });
   }
 
   if (estadoAnterior === "PEDIDO_GUIADO_CATEGORIA") {
@@ -164,7 +227,20 @@ async function procesarClienteAutorizado(
       carrito: carritoInicial,
     });
 
-    if (construccion.tipo === "turno") return construccion.resultado;
+    if (construccion.tipo === "turno") {
+      return resolverDelegacionConfirmacion(
+        confirmacionService,
+        cliente,
+        construccion.resultado
+      );
+    }
+
+    if (construccion.tipo === "confirmar") {
+      return confirmacionService.confirmarPedido(
+        cliente,
+        construccion.carrito
+      );
+    }
 
     if (construccion.tipo === "listo_libre") {
       const libre = await pedidoService.finalizarPedidoLibre(
@@ -309,7 +385,8 @@ export async function procesarConversationEngine(
     input.mensajeRecibido,
     estadoAnterior,
     input.acceso.cliente,
-    carritoInicial
+    carritoInicial,
+    input.ultimoMensajeEnPrevio
   );
 
   await persistirTurno(input.db, input.conversationId, {

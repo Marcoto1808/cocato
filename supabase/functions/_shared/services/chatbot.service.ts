@@ -114,7 +114,7 @@ export class ChatbotService {
     await actualizarUltimoMensajeConversacion(this.db, conversacion.id);
 
     const phoneNumberId =
-      phoneNumberIdConfig ?? mensaje.phoneNumberId ?? null;
+      mensaje.phoneNumberId ?? phoneNumberIdConfig ?? null;
 
     try {
       const engine = await procesarConversationEngine({
@@ -124,6 +124,9 @@ export class ChatbotService {
         mensajeRecibido: mensaje.texto,
         waTelefono: mensaje.from,
         estadoComercialActual: conversacion.estado_comercial ?? null,
+        ultimoMensajeEnPrevio:
+          (conversacion as { ultimo_mensaje_en?: string | null }).ultimo_mensaje_en ??
+          null,
         acceso,
       });
 

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ProductoCatalogo } from "@/lib/interpretacion/mensaje-interpreter";
-import { resolverProductoEnCatalogo } from "@/lib/interpretacion/resolver-producto";
+import {
+  normalizarNombreProducto,
+  normalizarPluralesComerciales,
+  resolverProductoEnCatalogo,
+} from "@/lib/interpretacion/resolver-producto";
 
 function producto(
   id: string,
@@ -90,5 +94,95 @@ describe("resolverProductoEnCatalogo con aliases", () => {
   it("no resuelve texto sin alias ni nombre conocido", () => {
     const resultado = resolverProductoEnCatalogo("producto inventado", catalogo);
     assert.equal(resultado.tipo, "no_encontrado");
+  });
+
+  it("marca ambiguo cuando hay varios productos que empiezan con el término", () => {
+    const catalogoBistecs = [
+      producto("b-cerdo", "Bistec de cerdo"),
+      producto("b-res", "Bistec de res"),
+      producto("b-pulpa", "Bistec de pulpa negra"),
+    ];
+
+    const resultado = resolverProductoEnCatalogo("bistec", catalogoBistecs);
+    assert.equal(resultado.tipo, "ambiguo");
+    if (resultado.tipo !== "ambiguo") return;
+    assert.equal(resultado.opciones.length, 3);
+  });
+
+  it("resuelve cuando el catálogo tiene exactamente Bistec", () => {
+    const catalogoExacto = [producto("b", "Bistec")];
+    const resultado = resolverProductoEnCatalogo("bistec", catalogoExacto);
+    assert.equal(resultado.tipo, "ok");
+    if (resultado.tipo !== "ok") return;
+    assert.equal(resultado.producto.nombre, "Bistec");
+  });
+
+  it("marca ambiguo cuando hay varios bistecs y el cliente escribe solo bistec", () => {
+    const catalogoBistecs = [
+      producto("b-cerdo", "Bistec de cerdo"),
+      producto("b-res", "Bistec de res"),
+    ];
+
+    const resultado = resolverProductoEnCatalogo("bistec", catalogoBistecs);
+    assert.equal(resultado.tipo, "ambiguo");
+  });
+
+  it("resuelve errores de escritura cercanos como esoinazo → Espinazo", () => {
+    const catalogo = [
+      producto("espinazo", "Espinazo"),
+      producto("pierna", "Pierna"),
+    ];
+    const resolucion = resolverProductoEnCatalogo("esoinazo", catalogo);
+    assert.equal(resolucion.tipo, "ok");
+    if (resolucion.tipo === "ok") {
+      assert.equal(resolucion.producto.nombre, "Espinazo");
+    }
+  });
+});
+
+describe("normalizarPluralesComerciales Sprint 6.9", () => {
+  const catalogoPiezas = [
+    producto("costilla", "Costilla"),
+    producto("pierna", "Pierna"),
+    producto("espinazo", "Espinazo"),
+    producto("cabeza", "Cabeza"),
+    producto("pulpa", "Pulpa"),
+    producto("chuleta", "Chuleta"),
+    producto("capote", "Capote"),
+    producto("capote-doble", "Capote doble"),
+    producto("lomo", "Lomo"),
+  ];
+
+  const casosPluralSingular: Array<[string, string]> = [
+    ["costillas", "Costilla"],
+    ["piernas", "Pierna"],
+    ["espinazos", "Espinazo"],
+    ["cabezas", "Cabeza"],
+    ["pulpas", "Pulpa"],
+    ["chuletas", "Chuleta"],
+    ["capotes", "Capote"],
+    ["capotes dobles", "Capote doble"],
+    ["lomos", "Lomo"],
+  ];
+
+  for (const [buscado, esperado] of casosPluralSingular) {
+    it(`normaliza "${buscado}" → "${esperado}"`, () => {
+      assert.equal(normalizarPluralesComerciales(buscado), normalizarNombreProducto(esperado));
+      const resultado = resolverProductoEnCatalogo(buscado, catalogoPiezas);
+      assert.equal(resultado.tipo, "ok");
+      if (resultado.tipo !== "ok") return;
+      assert.equal(resultado.producto.nombre, esperado);
+    });
+  }
+
+  it("singular y plural resuelven al mismo producto", () => {
+    for (const base of ["costilla", "pierna", "capote doble"]) {
+      const singular = resolverProductoEnCatalogo(base, catalogoPiezas);
+      const plural = resolverProductoEnCatalogo(`${base}s`, catalogoPiezas);
+      assert.equal(singular.tipo, "ok");
+      assert.equal(plural.tipo, "ok");
+      if (singular.tipo !== "ok" || plural.tipo !== "ok") return;
+      assert.equal(singular.producto.id, plural.producto.id);
+    }
   });
 });

@@ -19,6 +19,10 @@ const FRASES_COMERCIALES = [
   "ocupo",
   "ponme",
   "dame",
+  "agregame",
+  "agrega",
+  "tambien",
+  "me faltan",
   "quiero",
   "qiero",
   "manda",
@@ -32,6 +36,11 @@ const FRASES_COMERCIALES = [
   "déjame",
   "dejame",
   "por favor",
+  "buenos dias",
+  "buenas tardes",
+  "buenas noches",
+  "buenas",
+  "hola",
 ];
 
 const FRASES_ORDENADAS = [...FRASES_COMERCIALES].sort(

@@ -22,8 +22,6 @@ export type ResultadoEliminacionCarrito =
 const VERBO_ELIMINAR =
   /^(quitar|quita|eliminar|elimina|borrar|borra|cancelar|remueve|sacar)\s+(.+)$/i;
 
-const FRASES_REINICIAR = ["empezar de nuevo", "empezar otra vez"];
-
 function normalizarEntrada(texto: string): string {
   return normalizarTextoPedido(texto.trim().replace(/[.!?]+$/, ""));
 }
@@ -37,10 +35,6 @@ export function parsearSolicitudEliminacion(
 ): SolicitudEliminacion | null {
   const normalizado = normalizarEntrada(mensaje);
   if (!normalizado) return null;
-
-  if (FRASES_REINICIAR.some((frase) => normalizado === frase)) {
-    return { tipo: "vaciar" };
-  }
 
   const verboMatch = normalizado.match(VERBO_ELIMINAR);
   if (!verboMatch) return null;
